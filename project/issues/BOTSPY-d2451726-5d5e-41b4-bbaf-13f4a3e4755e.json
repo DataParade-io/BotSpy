@@ -1,0 +1,25 @@
+{
+  "id": "BOTSPY-d2451726-5d5e-41b4-bbaf-13f4a3e4755e",
+  "title": "Correct purpose setup CLI and library documentation",
+  "description": "Update stale library-only instruction, CLI shipped/planned reference, install/model setup instructions, privacy and deletion claims; preserve accurate scope and existing MIT license.",
+  "type": "task",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": "codex-release",
+  "creator": null,
+  "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "labels": [],
+  "dependencies": [],
+  "comments": [],
+  "created_at": "2026-10-20T12:42:34.298498Z",
+  "updated_at": "2026-10-20T12:43:12.975105Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "gpt-6",
+    "name": "botspy-release-readiness"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "61594169-f568-4b6e-b662-825d8283e5a2",
+  "issue_id": "BOTSPY-eb7f2c31-d954-4efb-a214-d63608c81d16",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-20T12:42:45.395Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Design and deliver BotSpy logo",
+    "description": "Logo design owned by Ryan. Deliver approved assets and intended usage before branded publicity. Independent engineering work continues.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": "ryan",
+    "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+    "labels": [],
+    "agent": {
+      "platform": "codex",
+      "model": "gpt-6",
+      "name": "botspy-release-readiness"
+    }
+  }
+}

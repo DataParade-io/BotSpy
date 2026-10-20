@@ -1,0 +1,33 @@
+{
+  "id": "BOTSPY-9f2210c9-65ee-4e42-986a-9ff28df22248",
+  "title": "Specify source-safe snapshots and scoped import pruning",
+  "description": "Write executable synthetic regressions before implementation: snapshot output must never unlink its source; a selected-source import must not prune other agents.",
+  "type": "task",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": "codex-release",
+  "creator": null,
+  "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "labels": [],
+  "dependencies": [],
+  "comments": [
+    {
+      "id": "a58a00c3-a88d-490f-951d-0b2f57e500c1",
+      "author": "example-user",
+      "text": "Add a third synthetic security specification: automatic SQLite snapshot copies use private unpredictable temporary directories and are removed when connections close, including failure paths. Confirmed previous implementation left permissive copies; source/destination alias rejection must happen before mutation.",
+      "created_at": "2026-10-20T12:45:07.570032Z",
+      "comment_type": "default"
+    }
+  ],
+  "created_at": "2026-10-20T12:42:23.065412Z",
+  "updated_at": "2026-10-20T12:45:07.570044Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "gpt-6",
+    "name": "botspy-release-readiness"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}
