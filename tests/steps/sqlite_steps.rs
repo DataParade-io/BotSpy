@@ -8,6 +8,9 @@ use cucumber::{given, then, when};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[path = "../cli_subprocess.rs"]
+mod cli_subprocess;
+
 static UNIQUE_DIR: AtomicUsize = AtomicUsize::new(0);
 
 fn fresh_dir() -> PathBuf {
@@ -187,7 +190,7 @@ fn snapshot_and_sidecars_digest(db: &std::path::Path) -> String {
 fn inspect_with_isolated_temp(world: &mut BotSpyWorld) {
     let temp_root = fresh_dir();
     std::fs::create_dir_all(&temp_root).expect("create temporary root");
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_botspy"))
+    let result = cli_subprocess::botspy_command()
         .args(["sources", "--home"])
         .arg(world.cli_home.as_ref().expect("fixture home"))
         .env("TMPDIR", &temp_root)

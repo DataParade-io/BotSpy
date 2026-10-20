@@ -89,6 +89,12 @@ message deletes its parts. The FTS rows go with the session.
 6. Refresh is idempotent. A second run with the same inputs writes
    nothing.
 
+The pruning boundary is the adapter's agent type, not its individual
+source root. Multiple roots of the same agent share that boundary.
+Confirm selected sources are readable before enabling pruning, and keep
+independent backups of source histories and store history that must be
+retained. A missing source can still prune its selected agent's rows.
+
 ## How a session comes back
 
 `Store::open_session` reads the `session_json` column and the

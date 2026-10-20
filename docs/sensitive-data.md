@@ -61,6 +61,12 @@ changed digest can reflect a concurrent writer, and new SQLite sidecars
 are not included in that comparison. The diagnostic is not a guarantee
 that source sidecars are untouched or that a live writer never waits.
 
+Explicit snapshot destinations must be idle and under your control.
+Destination validation is not a concurrency lock and does not protect
+against another process replacing a parent directory during the copy.
+Keep independent source backups; BotSpy's snapshots and index are not
+a backup policy.
+
 ### 3. Stored (BotSpy's own store — the long-term copy)
 
 | Place | Exact path | Content |

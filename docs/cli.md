@@ -110,6 +110,10 @@ Close or recover that database through its owning application before
 retrying; do not delete sidecars blindly. An explicit snapshot persists;
 you manage its lifetime.
 
+Use an idle destination in a directory you control. BotSpy does not lock
+the destination against another writer or protect a parent directory
+that another process can replace while the copy is running.
+
 The command reports a row count for known `events` or `cursorDiskKV`
 tables. Arbitrary SQLite files can be copied, but row reporting fails
 if neither table exists. A source name currently resolves directly to
@@ -148,7 +152,15 @@ botspy scan --since 7d --interval 60 -o ndjson
 Run one refresh pass with pruning enabled. Sessions no longer reported
 by the selected agents are removed; unselected agents' sessions remain.
 A selected root that is missing or unreadable can look empty to
-discovery. Use `scan --once` if you want to retain all existing sessions.
+discovery and cause its stored sessions to be pruned. Confirm that the
+selected sources are available, preview with `--dry-run`, and keep
+independent backups of source histories and any store history you need
+to retain. BotSpy's index is not a source backup. Use `scan --once` if
+you want to retain all existing sessions.
+
+Pruning is scoped by agent type, not by individual roots belonging to
+the same agent. Importing one home into a store previously populated
+from another home can prune that agent's earlier sessions.
 
 Flags: `--source`, `--db <path>`, `--full`, `--dry-run`, `--no-embed`.
 `--full` re-extracts reported sessions even when their discovery summary
