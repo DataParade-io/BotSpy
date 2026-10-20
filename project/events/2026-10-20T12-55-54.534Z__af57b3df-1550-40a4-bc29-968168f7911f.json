@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "af57b3df-1550-40a4-bc29-968168f7911f",
+  "issue_id": "BOTSPY-e975cf1e-b2e8-4a25-aee0-94d279a542e4",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-20T12:55:54.534Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Make empty timestamp specification executable and fail on undefined steps",
+    "description": "Full BDD run exposed a silently skipped existing cutoff scenario: the step regex requires nonempty timestamps although the feature tests an empty timestamp. Fix the step binding, and make the runner fail on skipped/undefined non-WIP steps so CI cannot report false coverage. Preserve explicit @wip filtering. Verify every runnable scenario and report pending specs separately.",
+    "issue_type": "chore",
+    "status": "open",
+    "priority": 2,
+    "assignee": "codex-release",
+    "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+    "labels": [],
+    "agent": {
+      "platform": "codex",
+      "model": "gpt-6",
+      "name": "botspy-release-readiness"
+    }
+  }
+}

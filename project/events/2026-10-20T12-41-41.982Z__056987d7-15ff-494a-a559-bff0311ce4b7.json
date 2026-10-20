@@ -7,7 +7,7 @@
   "actor_id": "example-user",
   "payload": {
     "title": "Public release readiness and launch preparation",
-    "description": "Verify the DataParade-io repository and existing MIT licensing; audit and fix concrete quality/security gaps with synthetic specifications; make installation and CLI/library docs accurate; package and publish via the existing crates.io release setup only; record tested install receipts. Prepare factual publicity for later review and Papyrus-powered sites, with logo design owned by Ryan. Coordinate Git hook installation with the LeftBlock owner. No new credentials, publisher grants, licensing changes, promotional publication, or monitoring/Cyclotron work.",
+    "description": "Verify the DataParade-io repository and existing MIT licensing; audit and fix concrete quality/security gaps with synthetic specifications; make installation and CLI/library docs accurate; package and publish via the existing crates.io release setup only; record tested install receipts. Prepare factual publicity for later review and Papyrus-powered sites, with logo design owned by the named project owner in BOTSPY-eb7f2c. Coordinate Git hook installation with the LeftBlock owner. No new credentials, publisher grants, licensing changes, promotional publication, or monitoring/Cyclotron work.",
     "issue_type": "epic",
     "status": "open",
     "priority": 2,

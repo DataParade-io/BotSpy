@@ -1,0 +1,50 @@
+{
+  "id": "BOTSPY-e975cf1e-b2e8-4a25-aee0-94d279a542e4",
+  "title": "Make empty timestamp specification executable and fail on undefined steps",
+  "description": "Full BDD run exposed a silently skipped existing cutoff scenario: the step regex requires nonempty timestamps although the feature tests an empty timestamp. Fix the step binding, and make the runner fail on skipped/undefined non-WIP steps so CI cannot report false coverage. Preserve explicit @wip filtering. Verify every runnable scenario and report pending specs separately.",
+  "type": "chore",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": "codex-release",
+  "creator": null,
+  "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "labels": [],
+  "dependencies": [],
+  "comments": [
+    {
+      "id": "4eeb2a05-7504-49de-8bd2-f1685e48290d",
+      "author": "example-user",
+      "text": "Release review also found a hardcoded 0.3.0 version-output expectation; change it to verify the current package version so subsequent release bumps retain the tested contract. Preserve @wip filtering while failing any otherwise undefined/skipped step.",
+      "created_at": "2026-10-20T12:57:07.439775Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "gpt-6",
+        "name": "botspy-release-readiness"
+      }
+    },
+    {
+      "id": "9cd3d43c-ca0c-4f38-98c7-26b7b7178a89",
+      "author": "example-user",
+      "text": "Personal-data guard now permits the explicitly requested logo owner first name only in BOTSPY-eb7f2c and its creation event. Logo assignment stays unchanged. Other personal identifiers remain prohibited, including in that issue; a focused exception-boundary test verifies this. Incidental names in other new tracker prose were replaced with pointers to the named assignment through Kanbus commands. No license or owner change.",
+      "created_at": "2026-10-20T13:02:57.036042Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "gpt-6",
+        "name": "botspy-release-readiness"
+      }
+    }
+  ],
+  "created_at": "2026-10-20T12:55:54.534453Z",
+  "updated_at": "2026-10-20T13:02:57.036065Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "gpt-6",
+    "name": "botspy-release-readiness"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

@@ -22,10 +22,22 @@
       "text": "Synthetic audit confirmed source deletion when snapshot output aliases source, cross-agent pruning during selected-source imports, and automatic snapshot copies retained with permissive modes in shared temp roots. Fix all three with executable specifications and no real session fixtures. Implementation split by source/store ownership; documentation corrected separately.",
       "created_at": "2026-10-20T12:45:13.031489Z",
       "comment_type": "default"
+    },
+    {
+      "id": "d96962ff-14c4-453c-84be-9dc20cfec515",
+      "author": "example-user",
+      "text": "Independent review reproduced stale destination WAL replay during successful snapshot replacement. Added regression and refusal of destination WAL/SHM/journal sidecars, preserving the old database for recovery. Full suite also caught default temporary-directory permissions 0755; implementation now explicitly requests 0700 and tests 0600 snapshot files plus lifetime/failure cleanup. Scoped prune regressions pass 5 scenarios / 51 steps. No live user histories used.",
+      "created_at": "2026-10-20T12:53:07.563256Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "gpt-6",
+        "name": "botspy-release-readiness"
+      }
     }
   ],
   "created_at": "2026-10-20T12:42:28.723475Z",
-  "updated_at": "2026-10-20T12:45:18.505590Z",
+  "updated_at": "2026-10-20T12:53:07.563273Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",
