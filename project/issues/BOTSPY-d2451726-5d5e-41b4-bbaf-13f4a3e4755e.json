@@ -10,9 +10,17 @@
   "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
   "labels": [],
   "dependencies": [],
-  "comments": [],
+  "comments": [
+    {
+      "id": "e2ff141c-6644-47ba-b39b-27a459f5cf18",
+      "author": "example-user",
+      "text": "Accurate purpose/setup/use documentation and 10 corrected D2 diagrams (both PNG themes and SVG) are in PR #28. All 12 diagrams rendered; 24 PNG signatures/dimensions and 12 SVG documents validated; both themes of changed diagrams inspected. Logo dependency and unpublished factual launch draft remain tracked separately.",
+      "created_at": "2026-10-20T13:13:48.868648Z",
+      "comment_type": "default"
+    }
+  ],
   "created_at": "2026-10-20T12:42:34.298498Z",
-  "updated_at": "2026-10-20T12:43:12.975105Z",
+  "updated_at": "2026-10-20T13:13:48.868658Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",

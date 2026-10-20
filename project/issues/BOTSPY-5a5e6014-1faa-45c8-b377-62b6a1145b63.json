@@ -15,9 +15,17 @@
       "type": "blocked-by"
     }
   ],
-  "comments": [],
+  "comments": [
+    {
+      "id": "3e2a7030-825a-4060-bb37-cc2b5ac283bc",
+      "author": "example-user",
+      "text": "Product PR https://github.com/DataParade-io/BotSpy/pull/28 at 4534af2 is open against develop. Local strict full suite: 290 scenarios, 1374 steps, zero skips; 89 unit, 14 integration/guard, 8 doc tests passed. fmt, clippy -D warnings, rustdoc -D warnings, cargo package, installed-package synthetic discovery/show/import/search/stats/dry-run/missing-session smoke passed. GitHub CI run 39428517097 and receipt gate run 39428517093 are pending; no release attempted. Existing MIT terms unchanged.",
+      "created_at": "2026-10-20T13:13:48.818545Z",
+      "comment_type": "default"
+    }
+  ],
   "created_at": "2026-10-20T12:42:39.852038Z",
-  "updated_at": "2026-10-20T12:51:23.770966Z",
+  "updated_at": "2026-10-20T13:13:48.818558Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",
