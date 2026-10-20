@@ -22,10 +22,22 @@
       "text": "Product PR https://github.com/DataParade-io/BotSpy/pull/28 at 4534af2 is open against develop. Local strict full suite: 290 scenarios, 1374 steps, zero skips; 89 unit, 14 integration/guard, 8 doc tests passed. fmt, clippy -D warnings, rustdoc -D warnings, cargo package, installed-package synthetic discovery/show/import/search/stats/dry-run/missing-session smoke passed. GitHub CI run 39428517097 and receipt gate run 39428517093 are pending; no release attempted. Existing MIT terms unchanged.",
       "created_at": "2026-10-20T13:13:48.818545Z",
       "comment_type": "default"
+    },
+    {
+      "id": "e9dcb6ef-84b2-4fcf-99c9-6a3e9680451f",
+      "author": "example-user",
+      "text": "Registry baseline independently downloaded with cargo info botspy@0.3.0 from crates.io: repository DataParade-io/BotSpy, MIT, documentation docs.rs/botspy/0.3.0. Public owner-list check via cargo owner --list stopped with no token found; no credentials created or requested, and no ownership mutation attempted. Publication remains scoped to the existing GitHub Actions CARGO_REGISTRY_TOKEN setup. PR #28 lint, package-size and receipt gate passed; platform tests pending.",
+      "created_at": "2026-10-20T13:17:25.230508Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
     }
   ],
   "created_at": "2026-10-20T12:42:39.852038Z",
-  "updated_at": "2026-10-20T13:13:48.818558Z",
+  "updated_at": "2026-10-20T13:17:25.230527Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",
