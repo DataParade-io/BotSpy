@@ -46,10 +46,22 @@
         "model": "GPT-6",
         "name": "codex-release"
       }
+    },
+    {
+      "id": "0cebda96-f36a-4f9d-ab13-009913fb1b60",
+      "author": "example-user",
+      "text": "Fixed in PR #28 follow-up 0fae3b8. Test-only helper honors the exact configured cross 0.2.5 target runner, preserves separate binary/argument paths and the real isolated subprocess/cleanup assertions, and does not hide runner failures. Four helper regressions red then green; original cleanup scenario 1/1 with 4 steps passed; scoped Clippy/fmt and privacy guard passed. Independent helper review found no blocker. No production, dependency or CI workflow change. Fresh full CI 39437721705 and receipt gate 39437721725 pending; failed prior run retained.",
+      "created_at": "2026-10-20T14:17:49.205154Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
     }
   ],
   "created_at": "2026-10-20T12:55:54.534453Z",
-  "updated_at": "2026-10-20T14:08:34.044018Z",
+  "updated_at": "2026-10-20T14:17:49.205168Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",

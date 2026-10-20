@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "event_id": "2767eac0-4ae8-4964-9fdc-a3ded0d54734",
+  "issue_id": "BOTSPY-e975cf1e-b2e8-4a25-aee0-94d279a542e4",
+  "event_type": "comment_added",
+  "occurred_at": "2026-10-20T14:17:49.205Z",
+  "actor_id": "example-user",
+  "payload": {
+    "comment_id": "0cebda96-f36a-4f9d-ab13-009913fb1b60",
+    "comment_author": "example-user",
+    "agent": {
+      "platform": "codex",
+      "model": "GPT-6",
+      "name": "codex-release"
+    }
+  }
+}

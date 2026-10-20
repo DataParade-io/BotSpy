@@ -29,10 +29,22 @@
         "model": "GPT-6",
         "name": "codex-release"
       }
+    },
+    {
+      "id": "8abc2d4f-278b-4b4f-b687-57bf52efcf36",
+      "author": "example-user",
+      "text": "Requested residual-limit documentation is committed in 0fae3b8: selected-agent rather than per-root pruning, unavailable selected sources may prune, independent backups/dry-run guidance, and idle caller-controlled snapshot destinations with no concurrency-lock guarantee. Awaiting PR #28 full CI and merge.",
+      "created_at": "2026-10-20T14:17:49.232125Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
     }
   ],
   "created_at": "2026-10-20T12:42:34.298498Z",
-  "updated_at": "2026-10-20T13:37:29.299824Z",
+  "updated_at": "2026-10-20T14:17:49.232139Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",
