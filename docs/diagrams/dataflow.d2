@@ -13,7 +13,7 @@ cursor_files: {
 }
 
 codex_files: {
-  label: "Sensitive data: Codex files\n\n~/.codex/state_5.sqlite\n~/.codex/thread_history_1.sqlite\n~/.codex/sessions/YYYY/MM/DD/\nrollout-*.jsonl"
+  label: "Sensitive data: Codex files\n\n~/.codex/state_5.sqlite\n~/.codex/sessions/YYYY/MM/DD/\nrollout-*.jsonl"
   class: sensitive
 }
 
@@ -30,13 +30,23 @@ ag_files: {
 # --- Snapshot copies that BotSpy creates ---
 
 cursor_snap: {
-  label: "Sensitive data: Cursor snapshot copy\n\n\$TMPDIR/botspy-cursor-snaps/\n<pid>-<seq>/snapshot.db\nopened read-only"
+  label: "Sensitive data: Cursor snapshot copy\n\n<temp>/botspy-snapshot-<random>/snapshot.db\nprivate; removed when reader closes"
   class: sensitive
 }
 
 ag_snap: {
-  label: "Sensitive data: Antigravity snapshot copies\n\n\$TMPDIR/botspy-ag-snaps/\n<pid>-<seq>/snapshot.db\nopened read-only"
+  label: "Sensitive data: Antigravity snapshot copies\n\n<temp>/botspy-snapshot-<random>/snapshot.db\nprivate; removed when reader closes"
   class: sensitive
+}
+
+codex_snap: {
+  label: "Sensitive data: Codex index copy\n\n<temp>/botspy-snapshot-<random>/snapshot.db\nprivate; removed when reader closes"
+  class: sensitive
+}
+
+snapshot_note: {
+  label: "SQLite read-only connections can\ncreate or update shared-memory sidecars.\nCrashes can leave private temporary copies."
+  class: tool
 }
 
 snap_cache: {
@@ -96,7 +106,7 @@ embedder: {
 }
 
 models: {
-  label: "Model cache\n<home>/.botspy/models/\nall-MiniLM-L6-v2\n(no session data)"
+  label: "Model cache\nBOTSPY_MODELS or \$HOME/.botspy/models\nthen all-MiniLM-L6-v2/\n--home does not move the cache\n(no session data)"
   class: tool
 }
 
@@ -122,12 +132,14 @@ user: {
 
 # --- Flows ---
 
-cursor_files -> cursor_snap: "SQLite online backup\n(WAL-safe, digest-verified).\nSensitive data: live store pages"
+cursor_files -> cursor_snap: "SQLite online backup\n(read-only source connection).\nSensitive data: live store pages"
 cursor_snap -> adapters: "adapter reads the copy.\nSensitive data: session history"
-ag_files -> ag_snap: "SQLite online backup\n(WAL-safe, digest-verified).\nSensitive data: live store pages"
+ag_files -> ag_snap: "SQLite online backup\n(read-only source connection).\nSensitive data: live store pages"
 ag_snap -> adapters: "adapter reads the copy.\nSensitive data: session history"
+codex_files -> codex_snap: "online backup of state_5.sqlite.\nSensitive data: thread index"
+codex_snap -> adapters: "reads thread and spawn-edge tables.\nSensitive data: session history"
 cc_files -> adapters: "reads transcripts.\nSensitive data: session history"
-codex_files -> adapters: "reads index and rollouts.\nSensitive data: session history"
+codex_files -> adapters: "reads rollout text files.\nSensitive data: session history"
 grok_files -> adapters: "reads entry logs.\nSensitive data: session history"
 
 adapters -> schema: "unified session objects.\nSensitive data: session history"
@@ -142,7 +154,7 @@ embedder -> store.message_vec: "embeddings\n(derived, not plaintext)"
 
 user -> cli: "runs commands"
 cli -> snap_cache: "snapshot verb copies\na source database.\nSensitive data: live store pages"
-cli -> query: "sessions, show, search, stats"
+cli -> query: "stored sessions, search, stats"
 query -> store: "reads (WAL readers).\nSensitive data: session history"
 query -> embedder: "embeds the query text\n(semantic, hybrid)"
 query -> output: "sessions, messages, hits.\nSensitive data: session history"

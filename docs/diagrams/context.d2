@@ -21,7 +21,7 @@ store: {
   class: sensitive
 }
 
-user -> botspy: "Runs commands:\nsources, sessions, show, search,\nimport, doctor, snapshot, stats, watch"
-botspy -> agent_data: "Reads session files\nand databases (read-only).\nSensitive data: session-history content"
+user -> botspy: "Runs commands:\nsources, sessions, show, search,\nimport, doctor, snapshot, stats, scan"
+botspy -> agent_data: "Reads session files\nand databases (read-only connection).\nSQLite sidecar coordination still applies.\nSensitive data: session-history content"
 botspy -> store: "Ingest writes copies of\nsession history.\nSensitive data: session-history content"
 botspy -> user: "Sessions, messages,\nand search hits\n(human, JSON, NDJSON).\nSensitive data: session-history content"

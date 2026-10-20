@@ -82,7 +82,10 @@ message deletes its parts. The FTS rows go with the session.
 3. It opens only the stale sessions. An unchanged session is never
    opened again from the adapter.
 4. It verifies each change with the content hash.
-5. It prunes the sessions that the summary no longer lists.
+5. When pruning is enabled, it removes sessions no longer listed by
+   the selected agents. Stored sessions from unselected agents remain.
+   A missing or unreadable selected source can appear empty; use
+   `refresh_with` with `prune: false` (or CLI `scan`) to retain history.
 6. Refresh is idempotent. A second run with the same inputs writes
    nothing.
 
@@ -127,5 +130,12 @@ thinking traces. The `parts` table and the `message_fts` index hold the
 text as plaintext. The embeddings in `message_vec` are derived data,
 not plaintext.
 
-To remove all BotSpy copies of your sessions, delete `<home>/.botspy/`.
+Deleting `<home>/.botspy/` removes the default store and explicit snapshot
+cache there after all BotSpy processes stop. Custom store paths, explicit
+snapshot destinations, redirected output, backups, and temporary copies
+left by older versions or interrupted processes require separate cleanup.
 See [`sensitive-data.md`](sensitive-data.md).
+
+Model setup does not backfill embeddings for sessions whose content is
+unchanged. For semantic search over a previously text-only import, use
+a new store after setting up the model; see [`search.md`](search.md).

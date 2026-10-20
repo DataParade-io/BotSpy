@@ -25,17 +25,13 @@ use crate::schema::{
     Usage,
 };
 use crate::session::SessionSummary;
-use crate::snapshot::snapshot_sqlite;
-use rusqlite::OpenFlags;
+use crate::snapshot::SnapshotConnection;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-
-static SNAPSHOT_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// One row of the threads index (`state_5.sqlite`). The real table has no
 /// parent column: spawn edges live in `thread_spawn_edges`.
@@ -192,20 +188,8 @@ impl CodexSource {
 
     /// A read-only connection to a snapshot copy of the threads index.
     /// The live index is never read in place.
-    fn snapshot_threads_index(&self) -> Result<PathBuf, crate::snapshot::SnapshotError> {
-        let dir = std::env::temp_dir()
-            .join("botspy-codex-snaps")
-            .join(format!(
-                "{}-{}",
-                std::process::id(),
-                SNAPSHOT_SEQ.fetch_add(1, Ordering::SeqCst)
-            ));
-        snapshot_sqlite(&self.root.join("state_5.sqlite"), &dir)
-    }
-
-    fn open_snapshot(snapshot: &Path) -> Result<rusqlite::Connection, String> {
-        rusqlite::Connection::open_with_flags(snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|err| err.to_string())
+    fn snapshot_threads_index(&self) -> Result<SnapshotConnection, crate::snapshot::SnapshotError> {
+        SnapshotConnection::open(&self.root.join("state_5.sqlite"))
     }
 
     /// The threads rows on an open snapshot connection. Any query failure
@@ -260,15 +244,7 @@ impl CodexSource {
             return (summaries, stats);
         }
         let conn = match self.snapshot_threads_index() {
-            Ok(snapshot) => match Self::open_snapshot(&snapshot) {
-                Ok(conn) => conn,
-                Err(err) => {
-                    stats.issues.push(format!(
-                        "threads index could not be read through a snapshot: {err}"
-                    ));
-                    return (summaries, stats);
-                }
-            },
+            Ok(conn) => conn,
             Err(err) => {
                 stats.issues.push(format!(
                     "threads index could not be read through a snapshot: {err}"
@@ -359,8 +335,7 @@ impl CodexSource {
         if !self.root.join("state_5.sqlite").is_file() {
             return None;
         }
-        let snapshot = self.snapshot_threads_index().ok()?;
-        let conn = Self::open_snapshot(&snapshot).ok()?;
+        let conn = self.snapshot_threads_index().ok()?;
         let threads = Self::query_threads(&conn).ok()?;
         // A missing or drifted edge table must not hide the rollout:
         // discovery and the doctor report the drift instead.

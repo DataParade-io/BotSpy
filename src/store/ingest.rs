@@ -9,7 +9,8 @@ use crate::adapter::Adapter;
 use crate::schema::Agent;
 use crate::session::{Session, UnknownSession};
 use crate::store::{
-    delete_session_vectors, session_content_hash, sqlite_error, upsert_session, Store, StoreError,
+    agent_code, delete_session_vectors, session_content_hash, sqlite_error, upsert_session, Store,
+    StoreError,
 };
 use rusqlite::{params, OptionalExtension};
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,8 +44,9 @@ pub struct IngestOptions {
     /// Compute the pass's report but roll the transaction back, writing
     /// nothing.
     pub dry_run: bool,
-    /// Refresh passes only: prune sessions the sources no longer report.
-    /// Ingest passes never prune, whatever this says.
+    /// Refresh passes only: prune sessions belonging to the supplied
+    /// adapters' agents that those sources no longer report. Sessions from
+    /// unselected agents are retained. Ingest passes never prune.
     pub prune: bool,
     /// Refresh passes only: ignore the staleness shortcut and re-extract
     /// every reported session from byte zero, so fixes to an adapter's
@@ -106,6 +108,7 @@ enum PassMode {
 
 /// One stored session row, as the staleness rules see it.
 struct StoredRow {
+    agent: String,
     last_activity_at: String,
     message_count: i64,
     content_hash: String,
@@ -135,8 +138,9 @@ impl Store {
         self.pass(adapters, options, PassMode::Ingest)
     }
 
-    /// [`Store::refresh_with`] with pruning enabled: sessions the sources
-    /// no longer report are removed. The store-level totals only.
+    /// [`Store::refresh_with`] with pruning enabled: sessions belonging to
+    /// the supplied adapters' agents that those sources no longer report
+    /// are removed. The store-level totals only.
     pub fn refresh(&self, adapters: &[Arc<dyn Adapter>]) -> Result<IngestReport, StoreError> {
         self.refresh_with(
             adapters,
@@ -153,9 +157,10 @@ impl Store {
     /// (id, last_activity_at, message_count), so unchanged sessions are
     /// never opened from their adapters; changed sessions are opened and
     /// re-ingested only when the content hash actually moved; with
-    /// `prune`, sessions the sources no longer report are removed; with
+    /// `prune`, missing sessions belonging to the supplied adapters' agents
+    /// are removed while unselected agents' sessions are retained; with
     /// `force_full`, every reported session is re-extracted regardless of
-    /// what its discover summary says.
+    /// what its discover summary says. An empty adapter list prunes nothing.
     /// One transaction per pass; `dry_run` rolls it back, reporting what
     /// would have changed.
     pub fn refresh_with(
@@ -186,7 +191,9 @@ impl Store {
             let mut map = BTreeMap::new();
             let mut stmt = self
                 .conn
-                .prepare("SELECT id, last_activity_at, message_count, content_hash FROM sessions")
+                .prepare(
+                    "SELECT id, last_activity_at, message_count, content_hash, agent FROM sessions",
+                )
                 .map_err(sqlite_error("list stored sessions"))?;
             let rows = stmt
                 .query_map([], |row| {
@@ -195,15 +202,17 @@ impl Store {
                         row.get::<_, String>(1)?,
                         row.get::<_, i64>(2)?,
                         row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
                     ))
                 })
                 .map_err(sqlite_error("list stored sessions"))?;
             for row in rows {
-                let (id, last_activity_at, message_count, content_hash) =
+                let (id, last_activity_at, message_count, content_hash, agent) =
                     row.map_err(sqlite_error("list stored sessions"))?;
                 map.insert(
                     id,
                     StoredRow {
+                        agent,
                         last_activity_at,
                         message_count,
                         content_hash,
@@ -217,11 +226,13 @@ impl Store {
         // First report wins within the pass: the first adapter to name an
         // id owns it for this transaction.
         let mut reported: BTreeSet<String> = BTreeSet::new();
+        let mut selected_agents = BTreeSet::new();
         for adapter in adapters {
             let mut row = AdapterIngestReport {
                 agent: adapter.agent(),
                 ..AdapterIngestReport::default()
             };
+            selected_agents.insert(agent_code(&row.agent));
             for summary in adapter.discover() {
                 row.discovered += 1;
                 if !reported.insert(summary.id.clone()) {
@@ -286,8 +297,8 @@ impl Store {
             adapter_rows.push(row);
         }
         if mode == PassMode::Refresh && options.prune {
-            for id in stored.keys() {
-                if reported.contains(id) {
+            for (id, stored_row) in &stored {
+                if !selected_agents.contains(stored_row.agent.as_str()) || reported.contains(id) {
                     continue;
                 }
                 tx.execute("DELETE FROM message_fts WHERE session_id = ?1", params![id])

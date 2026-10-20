@@ -1,264 +1,197 @@
 # The BotSpy CLI
 
-The `botspy` command is a thin shell over the library. Every verb is
-one library call plus rendering. The CLI holds no state of its own: it
-reads the agent files, and it writes only BotSpy's own store and
-snapshot files.
+The `botspy` command reads coding-agent histories and maintains a local
+SQLite index. It ships nine commands: `sources`, `sessions`, `show`,
+`doctor`, `snapshot`, `scan`, `import`, `search`, and `stats`.
+`watch` is not implemented. Use `botspy <command> --help` for the
+installed version's accepted flags.
 
-Today the CLI has six verbs: `sources`, `sessions`, `show`, `doctor`,
-`snapshot`, and `scan`. The read-only verbs build an in-memory
-`SessionStore` over the live source adapters and read from it. `scan`
-reads and writes the local store at `<home>/.botspy/store.db`. The
-other store-backed verbs (`search`, `import`, `stats`, `watch`) are
-planned; open Kanbus task BOTSPY-98386a tracks them.
+## Common flags and paths
 
-## Global flags
-
-Every verb accepts these flags:
+Flags go after the command, for example `botspy sessions -o json`.
 
 | Flag | Effect |
 | --- | --- |
-| `-s, --source <name>` | Select one source. Repeat the flag to select several. Names are the registry's own: `claude_code`, `cursor`, `codex`, `grok_bot`, `antigravity`. The names are exact; the CLI accepts no aliases. |
-| `--root <path>` | Use `<path>` as the source root instead of the default. Requires exactly one `--source`. |
-| `--home <path>` | Derive all roots and the store path from `<path>` instead of `$HOME`. |
-| `-o, --output <mode>` | Output mode: `human` (default), `json`, or `ndjson`. |
-| `--no-truncate` | Show full ids and paths in human mode. Machine modes never truncate. |
-| `--version` | Print the version. |
+| `-s, --source <name>` | Select sources for discovery/import/scan; repeat to select several. `search` supports at most one source filter. `stats` currently ignores this flag. |
+| `--root <path>` | Override the live source root; requires exactly one `--source`. It does not choose a store database. |
+| `--home <path>` | Derive source roots and the default store path from this home. |
+| `-o, --output <mode>` | `human` (default), `json`, or `ndjson`. `import` currently emits a human report regardless of this flag. |
+| `--no-truncate` | Show full ids and paths in human output. Machine output is not truncated. |
 
-The home directory comes from `--home`, else the `BOTSPY_HOME`
-environment variable, else `$HOME`. The store lives at
-`<home>/.botspy/store.db`; snapshots at `<home>/.botspy/snapshots/`.
+Source names are exact: `claude_code`, `cursor`, `codex`, `grok_bot`,
+and `antigravity`. Home resolution is `--home`, then `BOTSPY_HOME`,
+then `$HOME`. The default store is `<home>/.botspy/store.db`.
+`scan --store` chooses another database; `import`, `search`, `stats`,
+and store-backed `sessions` use `--db`.
 
-## Output modes
+The embedding-model cache is separate: `BOTSPY_MODELS`, otherwise
+`$HOME/.botspy/models`. Neither `--home` nor `BOTSPY_HOME` moves it.
+The installed CLI does not download models; see [search.md](search.md)
+for explicit setup from a source checkout.
 
-- `human` — tables and text for a person. Truncates long values unless
-  `--no-truncate` is set. Drops decoration when piped.
-- `json` — serde JSON of the real types (`Session`, `SessionSummary`,
-  `Message`, `Part`, ...). No second schema to keep in sync.
-- `ndjson` — one record per line, streamed. Honors the laziness rule:
-  taking the first ten sessions does not open the other two hundred.
+`botspy --version` prints the version. It is a top-level flag.
 
-## Exit codes
+## Output and exit codes
+
+JSON/NDJSON represent the command's records without human truncation.
+`show -o ndjson` emits messages; `sessions -o ndjson` emits session
+summaries. A continuous scan emits a report after each pass, so its
+JSON output is a sequence of documents, not one JSON array. `import`
+currently supports only the human summary in practice.
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Success — including empty results and skipped records. |
-| 1 | Target not found — unknown session id or unknown source. |
-| 2 | Usage error — bad flags. |
-| 3 | Source failure — unreadable root or store, snapshot error. |
+| 0 | Success, including empty results and reported skips. |
+| 1 | Target not found: an unknown session or source. |
+| 2 | Usage error, such as invalid flags or ambiguous source selection. |
+| 3 | Source/store/snapshot failure. |
+| 130 | Scan stopped after an interrupt. |
 
-Skipped records are data, not errors. Skips never change the exit
-code. The adapters count skips; the planned store-backed verbs will
-print the skip summary (BOTSPY-98386a).
+Doctor and scan report many per-source problems as data; exit 0 does
+not prove that every source was read successfully. Inspect their reports.
+Output can contain prompts, source code, tool output, and sensitive paths.
 
-## The verbs
+## Commands
 
-```
-botspy
-  sources    inspect the source registry: roots, session counts, status
-  sessions   list sessions across every source, newest activity first
-  show       open one session; walk its messages and parts
-  doctor     per-source diagnostics
-  snapshot   take a WAL-safe snapshot of a SQLite source and inspect it
-  scan       mine the adapters into the local store, in a loop (CDC pass, no pruning)
-```
+### `sources`
 
-Example output in this document comes from the synthetic test corpus,
-so ids, paths, and titles are fixtures, not real sessions.
+Discover the selected sources and report their resolved roots, session
+counts, and `ok` or `missing` status. No source selection means all five.
+Discovery runs each time; the command does not create the local index.
 
-### `botspy sessions`
-
-One unified listing across every registered adapter, most recent
-activity first. `-o json` is exactly the serialized `[SessionSummary]`.
-
-Flags: `--source`, `--project <id>`, `--since`/`--until` (RFC 3339
-timestamps), `--limit N`. Planned flags (BOTSPY-98386a): `--tree`
-(render the session graph: parents, subagents, forks, battles),
-`--kind <part-kind>` (sessions containing that part kind).
-
-```console
-$ botspy sessions --project example-app --since 2026-08-28
-SESSION   AGENT        PROJECT  MESSAGES  LAST ACTIVITY      TITLE
-synth-1a2b0008  claude_code  example-app    117  2026-08-02 15:41  fix importer flake
-synth-1a2b0009  cursor       example-app     40  2026-08-01 18:04  review: adapters
-3 sessions (use --no-truncate for full ids)
+```bash
+botspy sources --source claude_code -o json
 ```
 
-### `botspy show <session-id>`
+### `doctor`
 
-Open one session and walk it: a header line, then messages with their
-parts. A session is addressed by its native id, or by any unambiguous
-id prefix. An ambiguous prefix is an error that lists the candidates;
-an unknown id exits 1.
+Report source paths, discovered counts, skipped files, and adapter
+issues. Missing or malformed source content can appear in the report
+without a failing exit code. `--parity` is not implemented.
 
-Flags: `--message N` (1-based message ordinal). Planned flags
-(BOTSPY-98386a): `--turn <id>`, `--kind <part-kind>`, `--role`,
-`--thinking` (expand thinking traces), `--usage` (per-turn and thread
-usage), `--raw` (the `extra` passthrough untouched), `--graph`
-(parent/subagent/fork/battle/peer links and compaction windows).
-
-```console
-$ botspy show synth-1a2b --message 14
-Session synth-1a2b0008 (claude_code, example-app) — 117 messages, started 2026-08-30T09:12Z
-#14 assistant 2026-08-30T09:31Z turn t-7
-  · text       Let me trace the snapshot path…
-  · thinking   (190 lines)
-  · tool_call  Read path="src/snapshot.rs" [ok]
-  · tool_result  412 B
+```bash
+botspy doctor --source cursor -o json
 ```
 
-### `botspy scan`
+### `sessions`
 
-Mine the adapters into the local store: one refresh-style CDC pass that
-discovers sessions and lands new messages. Pruning is disabled — a
-source that reports nothing (an unreadable root, an agent that has not
-run yet) can never delete stored history. On an empty store the first
-scan is the cold ingest; later scans touch only what changed.
+List session summaries from the live adapters, ordered by recent
+activity. `--db <path>` instead lists the local store. Filters:
+`--source`, `--project <id>`, `--since <timestamp>`, `--until <timestamp>`,
+and `--limit N`. The date bounds are RFC 3339 timestamps. `--tree` and
+`--kind` are not implemented.
 
-A scan runs one full pass to start, then keeps running: it re-scans
-every `--interval <SECONDS>` seconds (default 60) until it is
-interrupted. The interval is measured from the end of the previous
-pass, so a pass that outlasts the interval can never overlap the next
-one — the loop is strictly one pass at a time. `scan` is an ordinary
-foreground process: background it with your own tooling (`&`, tmux,
-a process manager); there is no daemon, no pidfile, no detach. An
-interrupt (SIGINT/SIGTERM) lets the current pass finish and commit —
-the pass is one store transaction, so nothing is left half-written —
-then stops the loop with exit code 130. Errors inside one pass are
-reported in that pass's output and never kill the loop; the next pass
-tries again. Pruning stays off for the whole loop.
-
-Flags: `--source`, `--since <cutoff>` (an RFC 3339 timestamp, an ISO
-date `YYYY-MM-DD`, or a relative duration like `7d`/`24h`),
-`--store <path>` (default `<home>/.botspy/store.db`), `--dry-run`,
-`--interval <SECONDS>` (default 60; values below 1 are a usage error),
-`--once` (run exactly one pass and exit — the shape scripts and CI
-want), plus output globals. Each pass emits a full report in the
-chosen output mode — written and flushed as the pass finishes, so
-piped or redirected output streams live: human gets a `pass N` banner
-per report, JSON gets
-one document per pass (with a `pass` field), and NDJSON streams one
-line per source per pass. The cutoff filters what is read; nothing
-already stored is ever deleted — sessions older than the cutoff are
-skipped, not dropped. Zero sessions and open errors are reported per
-source, never silently swallowed.
-
-```console
-$ botspy scan --once --since 7d
-store  ~/.botspy/store.db
-SOURCE       ADDED  UPDATED  UNCHANGED  SKIPPED  ERRORS  MESSAGES
-claude_code      2        1         11        3       0        +4
-cursor           0        1          9        0       0        +2
-scanned 2 sources in 1.7s: 2 added, 2 updated, 20 unchanged, 3 skipped, 0 errors
-
-$ botspy scan --interval 60
-pass 1
-store  ~/.botspy/store.db
-...
+```bash
+botspy sessions --source codex --limit 10 -o ndjson
+botspy sessions --db ./history.db --project example-app -o json
 ```
 
-### `botspy sources`
+### `show <session-id>`
 
-The source registry as a human view: every known source name, its
-resolved root (after `--root`/`--home` overrides), the adapter behind
-it, the session count, and a status. Discovery runs live: every call
-walks the sources again. The verb prints no skip stats.
+Open a live-source session by its native id or unambiguous prefix.
+An unknown id exits 1; an ambiguous prefix reports the candidates.
+`--message N` selects a 1-based message ordinal. There is no `--db`
+option for this command. `--turn`, `--thinking`, `--raw`, and `--graph`
+are not implemented.
 
-```console
-$ botspy sources
-SOURCE        ROOT                                        SESSIONS  STATUS
-claude_code   /tmp/demo/.claude/projects                  4         ok
-cursor        /tmp/demo/.cursor/state.vscdb               2         ok
-codex         /tmp/demo/.codex                            2         ok
-grok_bot      …mp/demo/.grok/sand-client-persistence      3         ok
-antigravity   /tmp/demo/.gemini/antigravity               2         ok
+```bash
+botspy show synth-session --source claude_code --message 1 -o json
 ```
 
-A source whose files are missing is listed as `missing`, never hidden.
+### `snapshot <source-or-path>`
 
-Flags: `--source` (detail one or more). Planned flag (BOTSPY-98386a):
-`-v, --verbose` — per-source discovery detail, for example Cursor's
-IDE store versus its CLI transcripts.
+Copy a SQLite source with the online backup API over a read-only
+connection. The output is `<home>/.botspy/snapshots/<source>/snapshot.db`
+by default, or `<out>/snapshot.db` with `--out <dir>`. A destination
+that aliases the source is rejected. Existing `snapshot.db-wal`,
+`snapshot.db-shm`, or `snapshot.db-journal` files also cause refusal,
+because they may belong to a live or recoverable destination database.
+Close or recover that database through its owning application before
+retrying; do not delete sidecars blindly. An explicit snapshot persists;
+you manage its lifetime.
 
-### `botspy doctor`
+The command reports a row count for known `events` or `cursorDiskKV`
+tables. Arbitrary SQLite files can be copied, but row reporting fails
+if neither table exists. A source name currently resolves directly to
+its root, so `cursor` is supported; pass the database file path for a
+source whose root is a directory, such as Codex or Antigravity.
 
-Per-source diagnostics: the root path, the discovered counts, and the
-adapter's issues list. Doctor reports; it does not gate — the exit
-code stays 0 unless a source is unreadable. Skipped files and missing
-stores are data about your machine, not failures.
+Before/after digests compare source files that existed before the read.
+They are a diagnostic, not proof that BotSpy caused a change: a live
+writer can change the files concurrently. SQLite can create or update
+shared-memory sidecars even for read-only source connections.
 
-```console
-$ botspy doctor
-claude_code   ok    3 project dirs, 4 transcripts, 0 issues
-cursor        ok    2 composers, 4 bubbles, 0 issues
-codex         ok    2 threads, 0 issues
-grok_bot      ok    2 entry logs, 1 cloud agents, 0 issues
-antigravity   ok    2 conversations, 2 transcripts, 0 issues
+```bash
+botspy snapshot cursor --out ./snapshots/cursor -o json
 ```
 
-Flags: `--source`. Planned flag (BOTSPY-98386a): `--parity` — the
-golden round-trip check per agent, and digest verification that no
-source file was mutated.
+### `scan`
 
-### `botspy snapshot <source>`
+Discover and refresh the local store with pruning disabled. A missing
+source never removes stored sessions. By default it repeats every
+`--interval <seconds>` (60 by default, at least 1), measured from the
+end of the previous pass. `--once` runs one pass and exits.
 
-Take a WAL-safe snapshot of a SQLite source through a read-only
-connection, prove the source was not mutated (digests of the database
-and its `-wal`/`-shm` sidecars, before and after), and report row
-counts. The positional argument is a source name or a path. Snapshots
-land under `<home>/.botspy/snapshots/<source>/snapshot.db` by default;
-`--out <dir>` overrides.
+Use `--source`, `--store <path>`, and `--dry-run` as needed. `--since`
+accepts an RFC 3339 timestamp, an ISO date (`YYYY-MM-DD`), or a relative
+duration such as `7d` or `24h`. It limits what is read; older stored
+sessions remain. An interrupt lets the current pass finish, then exits
+130. Scan is a foreground process, not a system service.
 
-```console
-$ botspy snapshot cursor
-snapshot: ~/.botspy/snapshots/cursor/snapshot.db
-events: 115,200   source unmutated (digest verified before/after)
+```bash
+botspy scan --source claude_code --once --store ./history.db
+botspy scan --since 7d --interval 60 -o ndjson
 ```
 
-Flags: `--source`, `--out <dir>`. Planned flag (BOTSPY-98386a):
-`--list` — show what is cached.
+### `import`
 
-## Planned verbs: `search`, `import`, `stats`, `watch`
+Run one refresh pass with pruning enabled. Sessions no longer reported
+by the selected agents are removed; unselected agents' sessions remain.
+A selected root that is missing or unreadable can look empty to
+discovery. Use `scan --once` if you want to retain all existing sessions.
 
-The four verbs below are not implemented today. Open Kanbus task
-BOTSPY-98386a tracks them. They will use the local store at
-`<home>/.botspy/store.db`.
+Flags: `--source`, `--db <path>`, `--full`, `--dry-run`, `--no-embed`.
+`--full` re-extracts reported sessions even when their discovery summary
+is unchanged. `--dry-run` previews counts. `--no-embed` skips embeddings;
+if the model cache is absent, ordinary import also falls back to text-only
+and reports this. Model setup alone does not backfill old vectors; see
+[search.md](search.md). Output is currently a human report for all
+`--output` values.
 
-- `search <query>` — search the local store over messages and parts.
-  `--mode text` gives FTS5 full-text search: quoted terms,
-  punctuation and operators dropped, implicit AND, bm25 ranking.
-  `--mode semantic` embeds the query text and matches by cosine
-  similarity (floor 0.3). The store also fuses both result sets into
-  one hybrid ranking (reciprocal-rank fusion plus best cosine
-  similarity). See [`search.md`](search.md). Planned flags:
-  `--mode text|semantic`, `--source`, `--project`, `--kind`, `--role`,
-  `--context N` (surrounding messages, default 0), `--since`/`--until`,
-  `--limit`, plus the output globals.
-- `import` — run the pipeline: discover, extract, and write into the
-  local store. Incremental by default: discovery is incremental by
-  identity, and extraction resumes at stored byte offsets per session.
-  `--full` re-extracts from byte zero. `--dry-run` reports what would
-  land plus the skip counters, and writes nothing. Cursor's live store
-  is read through a WAL-safe snapshot automatically.
-- `stats` — aggregate counts, usage, and cost over the history:
-  sessions, messages, turns, parts by kind, tokens, cost where agents
-  recorded it, sessions per source and per project, compaction counts.
-  Absent usage shows as `—`, never as 0. Planned flags: `--source`,
-  `--project`, `--since`/`--until`, `--by <day|source|project>`.
-- `watch` — follow the agents as they work: re-discovery on an
-  interval (identity-incremental, so this is cheap), re-extraction at
-  stored offsets for appended messages. NDJSON emits typed events:
-  `session_new`, `session_changed`, `message_new`. SIGINT will exit
-  with code 130. Planned flags: `--source`, `--interval <secs>`
-  (default 2), plus the output globals.
+```bash
+botspy import --source claude_code --no-embed --db ./history.db
+botspy import --source claude_code --dry-run --db ./history.db
+```
+
+### `search <query>`
+
+Search the local store, not the live adapters. Flags: `--db <path>`,
+`--mode text|semantic|hybrid` (default `text`), one `--source`,
+`--project <id>`, and `--limit N`. Text mode uses FTS5; semantic mode
+uses local embeddings; hybrid combines both. `--kind`, `--role`,
+`--context`, and time filters are not implemented. See
+[search.md](search.md) for ranking and model setup.
+
+```bash
+botspy search 'parser error' --db ./history.db -o json
+```
+
+### `stats`
+
+Count stored sessions by `--by source|project|day` (default `source`).
+`--db <path>` selects the store. Rows are sorted by descending count,
+then key. This command does not aggregate token usage or costs.
+`--source` is accepted as a common flag but currently does not filter
+the results; project and time filters are not implemented.
+
+```bash
+botspy stats --db ./history.db --by project -o json
+```
 
 ## Composition
 
-No REPL, no TUI. The fun is piping:
-
 ```bash
 botspy sessions -o ndjson | jq -r .project_id | sort | uniq -c
-botspy show a3f9 -o ndjson | jq -c 'select(.role=="assistant")'
+botspy show synth-session -o ndjson | jq -c 'select(.role=="assistant")'
 botspy sources -o json | jq -r '.[] | select(.status != "ok") | .name'
-botspy doctor -o ndjson | jq -c 'select(.issues | length > 0)'
 ```

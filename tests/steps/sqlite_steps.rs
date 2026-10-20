@@ -93,3 +93,125 @@ fn writer_keeps_appending(world: &mut BotSpyWorld) {
         "the snapshot changed after the writer appended"
     );
 }
+
+#[given(expr = "a SQLite source named \"snapshot.db\" containing a synthetic event")]
+fn snapshot_named_source(world: &mut BotSpyWorld) {
+    let base = fresh_dir();
+    std::fs::create_dir_all(&base).expect("create source directory");
+    let db = base.join("snapshot.db");
+    let conn = rusqlite::Connection::open(&db).expect("create source");
+    conn.execute_batch("CREATE TABLE events(id INTEGER); INSERT INTO events VALUES (1);")
+        .expect("create synthetic event");
+    drop(conn);
+    world.sqlite_digest_before = Some(digest_files(&[&db]));
+    world.sqlite_db = Some(db);
+}
+
+#[when(expr = "I request a snapshot in the source directory")]
+fn snapshot_onto_source(world: &mut BotSpyWorld) {
+    let db = world.sqlite_db.as_ref().expect("source");
+    world.cli_run = Some(botspy::cli::run_from([
+        "botspy",
+        "snapshot",
+        db.to_str().expect("source path"),
+        "--out",
+        db.parent().unwrap().to_str().expect("source directory"),
+    ]));
+    world.sqlite_digest_after = Some(digest_files(&[db]));
+}
+
+#[then(expr = "the snapshot request is rejected")]
+fn snapshot_rejected(world: &mut BotSpyWorld) {
+    assert_ne!(world.cli_run.as_ref().expect("snapshot result").code, 0);
+}
+
+#[given(expr = "an invalid SQLite source and an existing snapshot containing a synthetic event")]
+fn invalid_source_with_previous_snapshot(world: &mut BotSpyWorld) {
+    snapshot_named_source(world);
+    let output = world.sqlite_db.take().expect("previous snapshot");
+    let source = output.with_file_name("invalid.db");
+    std::fs::write(&source, b"not a SQLite database").expect("invalid source");
+    world.cli_out_dir = Some(output);
+    world.sqlite_db = Some(source);
+}
+
+#[when(expr = "I request a snapshot beside the invalid source")]
+fn snapshot_invalid_source(world: &mut BotSpyWorld) {
+    snapshot_onto_source(world);
+    world.sqlite_digest_after = Some(digest_files(&[world
+        .cli_out_dir
+        .as_ref()
+        .expect("previous snapshot")]));
+}
+
+#[then(expr = "the previous snapshot is unchanged")]
+fn previous_snapshot_unchanged(world: &mut BotSpyWorld) {
+    source_unmutated(world);
+}
+
+#[given(expr = "a SQLite source and an existing snapshot with live WAL data")]
+fn source_with_live_snapshot(world: &mut BotSpyWorld) {
+    snapshot_named_source(world);
+    let output = world.sqlite_db.take().expect("previous snapshot");
+    let writer = rusqlite::Connection::open(&output).expect("open existing snapshot");
+    writer.pragma_update(None, "journal_mode", "WAL").unwrap();
+    writer.execute("INSERT INTO events VALUES (2)", []).unwrap();
+    let source = output.with_file_name("source.db");
+    let source_conn = rusqlite::Connection::open(&source).unwrap();
+    source_conn
+        .execute_batch("CREATE TABLE events(id INTEGER); INSERT INTO events VALUES (7);")
+        .unwrap();
+    drop(source_conn);
+    world.sqlite_digest_before = Some(snapshot_and_sidecars_digest(&output));
+    world.sqlite_writer = Some(writer);
+    world.cli_out_dir = Some(output);
+    world.sqlite_db = Some(source);
+}
+
+#[when(expr = "I request a snapshot beside that live destination")]
+fn snapshot_live_destination(world: &mut BotSpyWorld) {
+    snapshot_onto_source(world);
+    world.sqlite_digest_after = Some(snapshot_and_sidecars_digest(
+        world.cli_out_dir.as_ref().expect("previous snapshot"),
+    ));
+}
+
+fn snapshot_and_sidecars_digest(db: &std::path::Path) -> String {
+    let wal = wal_path(db);
+    let mut shm = db.as_os_str().to_owned();
+    shm.push("-shm");
+    digest_files(&[db, &wal, &PathBuf::from(shm)])
+}
+
+#[when(expr = "I inspect the sources using an isolated temporary directory")]
+fn inspect_with_isolated_temp(world: &mut BotSpyWorld) {
+    let temp_root = fresh_dir();
+    std::fs::create_dir_all(&temp_root).expect("create temporary root");
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_botspy"))
+        .args(["sources", "--home"])
+        .arg(world.cli_home.as_ref().expect("fixture home"))
+        .env("TMPDIR", &temp_root)
+        .env("TMP", &temp_root)
+        .env("TEMP", &temp_root)
+        .output()
+        .expect("inspect synthetic sources");
+    world.cli_run = Some(botspy::cli::RunOutcome {
+        code: result.status.code().unwrap_or(1),
+        stdout: String::from_utf8(result.stdout).expect("UTF-8 output"),
+        stderr: String::from_utf8(result.stderr).expect("UTF-8 errors"),
+    });
+    world.cli_out_dir = Some(temp_root);
+}
+
+#[then(expr = "no automatic snapshot copies remain in the temporary directory")]
+fn snapshots_cleaned(world: &mut BotSpyWorld) {
+    let temp_root = world.cli_out_dir.as_ref().expect("temporary root");
+    assert_eq!(
+        std::fs::read_dir(temp_root)
+            .expect("read temporary root")
+            .count(),
+        0,
+        "automatic snapshot copies remain after the command exits"
+    );
+    std::fs::remove_dir(temp_root).expect("remove empty temporary root");
+}

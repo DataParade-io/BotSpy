@@ -1,7 +1,7 @@
 title: Local store - SQLite with WAL
 
 path_note: {
-  label: "Store path\nBOTSPY_HOME → \$HOME.\nThe store lives at\n<home>/.botspy/store.db"
+  label: "Store path\nCLI: --home → BOTSPY_HOME → \$HOME.\nStore::open(path) can select another path.\nThe store lives at\n<home>/.botspy/store.db"
   class: tool
 }
 
@@ -50,12 +50,12 @@ sidecars: {
 }
 
 ingest: {
-  label: "Ingest\nOne transaction per import.\ncontent hash = SHA-256 of the\nsession JSON. Re-ingest deletes\nthe old rows (cascade), then\nwrites again: FTS rows re-indexed,\nvectors re-embedded.\nFirst report wins on\n(agent, id, project).\nThe embedding model is checked first;\na different model is refused."
+  label: "Ingest\nOne transaction per import.\ncontent hash = SHA-256 of the\nsession JSON. Re-ingest deletes\nthe old rows (cascade), then\nwrites again: FTS rows re-indexed,\nvectors re-embedded.\nFirst reported session id wins\nwithin each pass.\nThe embedding model is checked first;\na different model is refused."
   class: tool
 }
 
 refresh: {
-  label: "Refresh\nCompares discovery summaries\n(last activity, message count)\nwith the stored rows.\nOpens only stale sessions,\nverifies change by content hash,\nprunes sessions that no longer\nexist upstream. Unchanged sessions\nare never re-opened."
+  label: "Refresh\nCompares discovery summaries\n(last activity, message count)\nwith the stored rows.\nOpens only stale sessions,\nverifies change by content hash,\nprunes missing sessions only from\nselected agents when enabled.\n--full reopens unchanged sessions;\nunchanged content skips re-embedding."
   class: tool
 }
 

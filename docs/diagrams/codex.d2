@@ -6,12 +6,17 @@ root: {
 }
 
 index: {
-  label: "Sensitive data: Threads index\n~/.codex/state_5.sqlite\nopened read-only, directly\n(no snapshot copy)\nquery: id, rollout_path, parent_id, cwd\nfrom table threads"
+  label: "Sensitive data: Threads index\n~/.codex/state_5.sqlite\nthreads and thread_spawn_edges tables\nread-only online backup\nSQLite sidecar coordination still applies"
   class: sensitive
 }
 
-bug: {
-  label: "Known bug BOTSPY-81143b\nthe real threads table has no\nparent_id column. The query fails,\nthe adapter swallows the error,\nreal installs report 0 sessions"
+snapshot: {
+  label: "Sensitive data: Temporary snapshot\n<temp>/botspy-snapshot-<random>/snapshot.db\nQueried through a read-only connection\nRemoved when its reader closes"
+  class: sensitive
+}
+
+diagnostics: {
+  label: "Discovery and doctor issues\nMissing index, unreadable snapshot,\nand threads schema failures are reported.\nAn unreadable edge table is reported\nwithout hiding readable threads."
   class: tool
 }
 
@@ -26,7 +31,7 @@ missing: {
 }
 
 parents: {
-  label: "Spawn edges\nparent links in the session graph\n(the real DB keeps them in\nthread_spawn_edges; the query's\nparent_id column is absent today)"
+  label: "Spawn edges\nthread_spawn_edges table\nchild_thread_id → parent_thread_id\nParent links in the session graph"
   class: tool
 }
 
@@ -50,13 +55,15 @@ session: {
   class: tool
 }
 
-root -> index: "reads thread list"
-index -> rollouts: "rollout_path per thread\n(absolute or relative)"
+root -> index: "locates index"
+index -> snapshot: "copies committed SQLite state"
+snapshot -> rollouts: "rollout_path from threads\n(absolute or relative to root)"
 rollouts -> adapter: "read record by record"
-index -> missing: "thread without a rollout file"
-index -> bug: "query error swallowed\n(unwrap_or_default)"
+snapshot -> missing: "thread without a rollout file"
+index -> diagnostics: "missing index or backup failure"
+snapshot -> diagnostics: "query failures"
 adapter -> ordering: "sorts by ordinal"
 ordering -> mapping: "each record type"
 mapping -> session: "extracted"
-index -> parents: "parent_id column"
+snapshot -> parents: "queries spawn-edge table"
 parents -> session: "session graph"

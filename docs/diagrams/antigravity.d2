@@ -21,7 +21,7 @@ payload: {
 }
 
 snap: {
-  label: "Sensitive data: Snapshot copies\n\$TMPDIR/botspy-ag-snaps/\n<pid>-<seq>/snapshot.db\none copy per database,\nopened read-only"
+  label: "Sensitive data: Snapshot copies\n<temp>/botspy-snapshot-<random>/snapshot.db\none private copy per database\nremoved when its reader closes"
   class: sensitive
 }
 
@@ -46,7 +46,7 @@ session: {
 }
 
 root -> summaries: "lists conversations"
-summaries -> snap: "online backup"
+summaries -> snap: "online backup; SQLite\nsidecar coordination still applies"
 payload -> snap: "online backup"
 snap -> adapter: "read-only queries"
 transcript -> adapter: "read record by record"

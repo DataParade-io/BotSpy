@@ -1171,6 +1171,8 @@ fn import_dry_run(db: &Path, adapters: &[Arc<dyn Adapter>]) -> RunOutcome {
     };
     let mut report = IngestReport::default();
     let mut reported: std::collections::BTreeSet<String> = Default::default();
+    let selected_agents: std::collections::BTreeSet<Agent> =
+        adapters.iter().map(|adapter| adapter.agent()).collect();
     for adapter in adapters {
         for summary in adapter.discover() {
             if !reported.insert(summary.id.clone()) {
@@ -1203,7 +1205,7 @@ fn import_dry_run(db: &Path, adapters: &[Arc<dyn Adapter>]) -> RunOutcome {
     }
     report.pruned = stored
         .iter()
-        .filter(|stored| !reported.contains(&stored.id))
+        .filter(|stored| selected_agents.contains(&stored.agent) && !reported.contains(&stored.id))
         .count();
     RunOutcome::ok(format!(
         "{}, {}, {}, {} (dry run — nothing written)\n",

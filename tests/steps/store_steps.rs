@@ -743,6 +743,42 @@ fn refresh_the_store(world: &mut BotSpyWorld) {
     );
 }
 
+#[when(regex = r#"^I refresh only the "([^"]+)" adapter( without writing)?$"#)]
+fn refresh_selected_adapter(world: &mut BotSpyWorld, agent: String, dry_run: String) {
+    let adapters: Vec<Arc<dyn Adapter>> = registered_adapters(world)
+        .into_iter()
+        .filter(|adapter| adapter.agent() == parse_agent(&agent))
+        .collect();
+    assert_eq!(adapters.len(), 1, "exactly one selected fixture adapter");
+    let report = world
+        .local_store
+        .as_ref()
+        .expect("a store")
+        .refresh_with(
+            &adapters,
+            &IngestOptions {
+                prune: true,
+                dry_run: !dry_run.is_empty(),
+                ..IngestOptions::default()
+            },
+        )
+        .expect("selected-source refresh succeeds");
+    world.detailed_ingest_report = Some(report.clone());
+    world.ingest_report = Some(report.totals);
+}
+
+#[when("I refresh with no adapters")]
+fn refresh_no_adapters(world: &mut BotSpyWorld) {
+    world.ingest_report = Some(
+        world
+            .local_store
+            .as_ref()
+            .expect("a store")
+            .refresh(&[])
+            .expect("empty refresh succeeds"),
+    );
+}
+
 #[then(
     regex = r#"^the refresh reports ([0-9]+) new sessions?, ([0-9]+) updated, and ([0-9]+) pruned$"#
 )]
@@ -1127,7 +1163,7 @@ fn iterate_messages_filtered_by_part_kind(world: &mut BotSpyWorld, id: String, k
 }
 
 #[given(
-    regex = r#"^fixture sessions "([^"]+)" last active at "([^"]+)" and "([^"]+)" last active at "([^"]+)" and "([^"]+)" last active at "([^"]+)"$"#
+    regex = r#"^fixture sessions "([^"]+)" last active at "([^"]*)" and "([^"]+)" last active at "([^"]*)" and "([^"]+)" last active at "([^"]*)"$"#
 )]
 #[allow(clippy::too_many_arguments)]
 fn fixture_sessions_three_last_active(
