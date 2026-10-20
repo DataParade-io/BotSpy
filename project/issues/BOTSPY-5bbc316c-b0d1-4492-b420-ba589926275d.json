@@ -13,6 +13,10 @@
     {
       "target": "BOTSPY-eb7f2c31-d954-4efb-a214-d63608c81d16",
       "type": "blocked-by"
+    },
+    {
+      "target": "BOTSPY-5a5e6014-1faa-45c8-b377-62b6a1145b63",
+      "type": "blocked-by"
     }
   ],
   "comments": [
@@ -27,10 +31,22 @@
         "model": "gpt-6",
         "name": "botspy-release-readiness"
       }
+    },
+    {
+      "id": "be5fd7fd-f0d8-4cc4-afad-a7be2ba52229",
+      "author": "example-user",
+      "text": "Launch copy remains an unpublished draft in docs/launch-readiness.md. Added the verified package/install receipt task as an explicit dependency alongside the owner-designed logo. Final wording, synthetic examples, release version and proposed Papyrus-powered destination must be reviewed before promotional publication.",
+      "created_at": "2026-10-20T14:23:48.127777Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
     }
   ],
   "created_at": "2026-10-20T12:42:50.950685Z",
-  "updated_at": "2026-10-20T12:46:55.707707Z",
+  "updated_at": "2026-10-20T14:23:48.127797Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",

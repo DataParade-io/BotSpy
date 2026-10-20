@@ -13,6 +13,18 @@
     {
       "target": "BOTSPY-4dc1e39e-31a6-4492-a63e-3deb61cd07ca",
       "type": "blocked-by"
+    },
+    {
+      "target": "BOTSPY-d2451726-5d5e-41b4-bbaf-13f4a3e4755e",
+      "type": "blocked-by"
+    },
+    {
+      "target": "BOTSPY-9c2b8c90-a0d4-488f-838d-7b489ded23d6",
+      "type": "blocked-by"
+    },
+    {
+      "target": "BOTSPY-e975cf1e-b2e8-4a25-aee0-94d279a542e4",
+      "type": "blocked-by"
     }
   ],
   "comments": [
@@ -61,7 +73,7 @@
     }
   ],
   "created_at": "2026-10-20T12:42:39.852038Z",
-  "updated_at": "2026-10-20T14:08:34.091787Z",
+  "updated_at": "2026-10-20T14:49:03.143877Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",
