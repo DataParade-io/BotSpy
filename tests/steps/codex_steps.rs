@@ -584,6 +584,21 @@ fn discovery_reports_edge_issue(world: &mut BotSpyWorld) {
     );
 }
 
+#[then("discovery still yields the indexed sessions")]
+fn discovery_preserves_indexed_sessions(world: &mut BotSpyWorld) {
+    let mut ids: Vec<&str> = world
+        .discovered
+        .iter()
+        .map(|summary| summary.id.as_str())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        ["t1", "t2"],
+        "a missing spawn-edge table must not hide either indexed thread"
+    );
+}
+
 #[then(regex = r#"^the doctor reports the schema drift issue$"#)]
 fn doctor_reports_drift(world: &mut BotSpyWorld) {
     let report: &CodexReport = world.cx_report.as_ref().expect("no Codex doctor report");

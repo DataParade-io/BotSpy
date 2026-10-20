@@ -40,6 +40,9 @@ fn main() {
 
 async fn run() {
     BotSpyWorld::cucumber()
+        // WIP scenarios are filtered out below. Every step in an
+        // executable scenario must have a binding and actually run.
+        .fail_on_skipped_with(|_, _, _| true)
         .filter_run_and_exit("features", not_wip)
         .await;
 }

@@ -9,17 +9,17 @@ machine: {
   }
 
   cli: {
-    label: "BotSpy CLI\n\nsources, sessions, show, search,\nimport, doctor, snapshot, stats, watch\n\nAlways read-only against agent data.\nThe only writes are BotSpy's own\nstore and snapshot files."
+    label: "BotSpy CLI\n\nsources, sessions, show, search,\nimport, doctor, snapshot, stats, scan\n\nReads agent conversation records.\nSQLite may create or touch sidecars.\nWrites its own store and snapshots."
     class: tool
   }
 
   agent_data: {
-    label: "Sensitive data: agent session files\n\nClaude Code, Cursor, Codex,\nGrok Bot, Antigravity\n\nEach agent's own files and\ndatabases under \$HOME"
+    label: "Sensitive data: agent session files\n\nClaude Code, Cursor, Codex,\nGrok Bot, Antigravity\n\nEach agent's own files and\ndatabases under the selected home"
     class: sensitive
   }
 
   snapshots: {
-    label: "Sensitive data: snapshot copies\n\n\$TMPDIR/botspy-cursor-snaps/<pid>-<seq>/snapshot.db\n\$TMPDIR/botspy-ag-snaps/<pid>-<seq>/snapshot.db\n<home>/.botspy/snapshots/<source>/snapshot.db"
+    label: "Sensitive data: snapshot copies\n\nAutomatic: <temp>/botspy-snapshot-<random>/snapshot.db\nCursor, Codex, Antigravity\nPrivate; removed when the reader closes.\n\nExplicit: <home>/.botspy/snapshots/<source>/snapshot.db\n(or --out); retained until removed."
     class: sensitive
   }
 
@@ -30,15 +30,15 @@ machine: {
   }
 
   models: {
-    label: "Model cache\n\n<home>/.botspy/models/\nall-MiniLM-L6-v2/\n\nNo session data: model files only"
+    label: "Model cache\n\nBOTSPY_MODELS or \$HOME/.botspy/models\nthen all-MiniLM-L6-v2/\n--home does not move this cache.\n\nNo session data: model files only"
     class: tool
   }
 }
 
-user -> machine.cli: "Runs commands"
+machine.user -> machine.cli: "Runs commands"
 machine.cli -> machine.agent_data: "Adapters read sources (read-only).\nSensitive data: session history"
 machine.cli -> machine.snapshots: "Snapshot module copies\nlive SQLite files.\nSensitive data: live store pages"
-machine.snapshots -> machine.cli: "Adapters read the copy\nwhen the live store is busy.\nSensitive data: session history"
+machine.snapshots -> machine.cli: "Adapters read the automatic copy.\nCrashes can leave private copies.\nSensitive data: session history"
 machine.cli -> machine.store: "Ingest writes; queries read.\nSensitive data: session history"
 machine.cli -> machine.models: "Embedder loads model\nfiles (read-only)"
 machine.cli -> machine.user: "Sessions, messages,\nsearch hits\n(human, JSON, NDJSON).\nSensitive data: session history"

@@ -24,10 +24,12 @@ the model cache — keep the theme's default look.
 
 ## The inventory
 
-Every path BotSpy reads, copies, or writes. `<home>` is the
-`--home` flag, else `BOTSPY_HOME`, else `$HOME`.
+The paths BotSpy reads, copies, or writes. `<home>` is the
+`--home` flag, else `BOTSPY_HOME`, else `$HOME`. `~` in the source
+inventory means that resolved home; `--root` can replace one source
+root. Model cache resolution is different, as described below.
 
-### 1. Read (the agents' own files — never written by BotSpy)
+### 1. Read (the agents' own conversation records)
 
 | Source | Exact paths | Content |
 | --- | --- | --- |
@@ -41,13 +43,29 @@ Every path BotSpy reads, copies, or writes. `<home>` is the
 
 | Copy | Exact path | When |
 | --- | --- | --- |
-| Cursor snapshot | `$TMPDIR/botspy-cursor-snaps/<pid>-<seq>/snapshot.db` | Automatic: the live Cursor store is read through this copy |
-| Antigravity snapshots | `$TMPDIR/botspy-ag-snaps/<pid>-<seq>/snapshot.db` (one per database) | Automatic: the live Antigravity databases are read through these copies |
-| Snapshot cache | `<home>/.botspy/snapshots/<source>/snapshot.db` | Written by the `snapshot` verb, on demand |
+| Cursor, Codex, and Antigravity snapshots | `<temp>/botspy-snapshot-<random>/snapshot.db` (one per opened database) | Automatic: the live databases are read through these copies |
+| Explicit snapshot | `<home>/.botspy/snapshots/<source>/snapshot.db`, or `<out>/snapshot.db` with `--out` | Written by the `snapshot` verb, on demand; persists until removed |
 
-The snapshot module proves with file digests (`digest_files`, before
-and after) that the source files were not mutated. The copies hold the
-same content as the sources.
+`<temp>` is the platform temporary directory (`$TMPDIR` on Unix when
+set). Automatic copies use random private directories. On Unix the
+directory mode is `0700` and snapshot file mode is `0600`. The directory
+is removed when its owning SQLite connection is dropped, including
+normal error returns. A crash, forced kill, or filesystem cleanup
+failure can leave a copy behind. Earlier versions also used
+`botspy-cursor-snaps`, `botspy-ag-snaps`, and `botspy-codex-snaps`
+directories with persistent copies; upgrading does not remove them.
+
+The copies contain sensitive source data. The snapshot command compares
+before/after digests of source files that existed before the read. A
+changed digest can reflect a concurrent writer, and new SQLite sidecars
+are not included in that comparison. The diagnostic is not a guarantee
+that source sidecars are untouched or that a live writer never waits.
+
+Explicit snapshot destinations must be idle and under your control.
+Destination validation is not a concurrency lock and does not protect
+against another process replacing a parent directory during the copy.
+Keep independent source backups; BotSpy's snapshots and index are not
+a backup policy.
 
 ### 3. Stored (BotSpy's own store — the long-term copy)
 
@@ -75,28 +93,41 @@ nothing over the network.
 
 | Place | Exact path | Why |
 | --- | --- | --- |
-| Model cache | `<home>/.botspy/models/all-MiniLM-L6-v2/` (`model_quantized.onnx`, `tokenizer.json`) | Model files only. No session data. Downloaded once, digest-verified. |
+| Model cache | `$BOTSPY_MODELS/all-MiniLM-L6-v2/`, otherwise `$HOME/.botspy/models/all-MiniLM-L6-v2/` (`model_quantized.onnx`, `tokenizer.json`) | Model files only. No session data. Explicitly downloaded, digest-verified. |
 
-## Properties that hold everywhere
+`--home` and `BOTSPY_HOME` do not move the model cache. Setup downloads
+public model assets from Hugging Face; it does not send session data.
 
-- BotSpy never writes to a source file. Every database connection is
-  read-only; the snapshot module uses the SQLite online backup API
-  over a read-only connection.
-- Today only Cursor and Antigravity read their live databases through
-  snapshot copies. Codex opens `~/.codex/state_5.sqlite` read-only,
-  directly: no snapshot copy. A read-only connection still touches the
-  `-shm` sidecar of a database that another process keeps open. The
-  text sources (Claude Code, Grok Bot, the Codex rollouts) read plain
-  files.
-- The only writes are BotSpy's own: the store, the snapshot copies,
-  and the model cache.
-- No network at runtime. The one-time model download is the only
-  network step, and it is digest-verified.
+## Source access and local copies
+
+- Adapters do not edit conversation records. Source SQLite connections
+  use read-only flags; Cursor, Codex, and Antigravity databases are
+  copied with SQLite's online backup API before querying the copy.
+- SQLite may create or update WAL shared-memory sidecars as part of
+  reading. Normal SQLite locking and coordination still apply.
+- Claude Code, Grok Bot, Codex rollouts, and other transcript files are
+  read as files. BotSpy's store, explicit snapshots, and automatic
+  snapshots are separate copies of sensitive content.
+- The store and text index are plaintext, not encrypted or redacted.
+  Embeddings are sensitive derived data, not an anonymization guarantee.
+  Protect the storage paths and any terminal logs or redirected output.
+- Normal CLI operations make no network calls. Explicit model setup is
+  the download step; both model files have pinned digests.
 
 ## Removing the data
 
-- To remove all BotSpy copies: delete `<home>/.botspy/` (the store, the
-  snapshot cache, and the model cache).
-- The temporary snapshot copies in `$TMPDIR` go away with the temp
-  directory.
-- The agents' own files stay; BotSpy cannot and does not change them.
+Stop BotSpy processes before removing their files. Deleting
+`<home>/.botspy/` removes the default store, its sidecars, and explicit
+snapshots under that directory. It does not remove:
+
+- stores selected with `--db` or `--store` elsewhere;
+- snapshots selected with `--out` elsewhere;
+- automatic temporary copies still in use or left by older versions,
+  a crash, forced kill, or cleanup error;
+- redirected output, terminal logs, backups, or copies made by other tools;
+- a model cache at a different `BOTSPY_MODELS` or `$HOME` location.
+
+Inspect the appropriate temporary directory for leftover BotSpy snapshot
+directories after processes stop. Removing a file is not a guarantee of
+secure erasure from the underlying storage or its backups. The agents'
+own histories are separate and remain in their original locations.

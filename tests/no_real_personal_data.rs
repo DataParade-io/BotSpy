@@ -123,6 +123,25 @@ const EXEMPTED: &[(&str, &[&str])] = &[
 
 fn is_exempt(path: &str, needle: &str) -> bool {
     let needle_lower = needle.to_lowercase();
+    // The project owner explicitly requested the named logo assignment.
+    // Permit only that first name in that issue and its creation event;
+    // all other identifiers and all other tracker records remain guarded.
+    if needle_lower == "ry".to_string() + "an" {
+        const LOGO_ISSUE: &str = "BOTSPY-eb7f2c31-d954-4efb-a214-d63608c81d16";
+        if path == format!("project/issues/{LOGO_ISSUE}.json") {
+            return true;
+        }
+        if path.starts_with("project/events/") {
+            let event = std::fs::read(path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+            if event.is_some_and(|event| {
+                event["issue_id"] == LOGO_ISSUE && event["event_type"] == "issue_created"
+            }) {
+                return true;
+            }
+        }
+    }
     for (exempt_path, fragments) in EXEMPTED {
         if (path == *exempt_path || path.ends_with(exempt_path))
             && fragments
@@ -194,6 +213,17 @@ fn contains_word(haystack_lower: &str, pattern: &str) -> bool {
         start = idx + 1;
     }
     false
+}
+
+#[test]
+fn logo_owner_exception_does_not_allow_other_identifiers_or_documents() {
+    let owner = "ry".to_string() + "an";
+    let logo_issue = "project/issues/BOTSPY-eb7f2c31-d954-4efb-a214-d63608c81d16.json";
+    assert!(is_exempt(logo_issue, &owner));
+    assert!(!is_exempt("README.md", &owner));
+    assert!(!is_exempt("project/issues/example.json", &owner));
+    assert!(!is_exempt(logo_issue, &(owner + " Porter")));
+    assert!(!is_exempt(logo_issue, "/Users/example"));
 }
 
 #[test]

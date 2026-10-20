@@ -6,7 +6,12 @@ BotSpy reads the on-disk session histories of **Claude Code, Cursor,
 Codex, Grok Bot, and Antigravity** — locally, and read-only. One
 adapter per agent, one normalized schema, one local SQLite store with
 full-text and semantic search. Everything stays on your machine: no
-server, no telemetry, and no writes to your agent data.
+server or telemetry. BotSpy does not edit conversation records. SQLite
+may create or update shared-memory sidecars while reading live databases.
+
+BotSpy is an MIT-licensed [DataParade-io project](https://github.com/DataParade-io/BotSpy),
+distributed as the `botspy` crate and command line tool on
+[crates.io](https://crates.io/crates/botspy).
 
 ## The system in one picture
 
@@ -21,10 +26,10 @@ files read-only and shows you the results.
 
 ## What BotSpy does
 
-- **Reads, never writes.** Each agent's history is read where it lives
-  on disk. Live SQLite stores are copied first through a read-only,
-  WAL-safe snapshot, so the source file, its WAL, and its shm are never
-  touched and the live app never blocks.
+- **Reads source records.** Each agent's history is read where it lives
+  on disk. Live SQLite stores are copied through a read-only connection
+  using SQLite's online backup API. This includes committed WAL content;
+  normal SQLite coordination and locking still apply.
 - **One normalized schema.** Every record from every agent becomes a
   `Session`, `Message`, and `Part`, with provenance back to the exact
   source file, line, or row. Records an adapter does not know are
@@ -49,7 +54,8 @@ files read-only and shows you the results.
 Five agents' files feed five source adapters. The adapters convert
 their records into the unified schema, ingest writes the store, and the
 query surface answers over it — text, semantic, or hybrid. The diagram
-shows every source and every exact path.
+shows the source and storage boundaries. The sensitive-data inventory
+below is the reference for paths and cleanup behavior.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/diagrams/dataflow.dark.png">
@@ -62,8 +68,11 @@ On one machine there are four data places and one process: the agent
 session files (read-only), temporary snapshot copies for live SQLite
 files, the local store at `~/.botspy/store.db`, and a model cache that
 holds model weights only, no session data. The BotSpy CLI is the one
-process; it holds no data of its own. Delete `~/.botspy/` and no BotSpy
-copy of your sessions remains.
+process. Its persistent outputs normally live under `~/.botspy/`;
+custom database paths, explicit snapshots, redirected output, backups,
+and temporary copies left by older versions or interrupted processes
+must be handled separately. See the
+[sensitive-data inventory](https://github.com/DataParade-io/BotSpy/blob/develop/docs/sensitive-data.md).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/diagrams/containers.dark.png">
@@ -74,16 +83,16 @@ copy of your sessions remains.
 
 - Adapters are read-only by construction — the protocol has no surface
   for writing to a source.
-- Live SQLite stores in WAL mode are read through snapshot copies; the
-  source file, WAL, and shm are never written.
-- There is no network, no telemetry, no server. BotSpy reads local
-  files and prints local answers; nothing leaves the machine.
-- **One honest exception:** semantic search runs a real embedding model
-  (quantized all-MiniLM-L6-v2 via ONNX on your CPU). Its weights and
-  tokenizer are fetched once — only when you explicitly run the setup
-  step (`cargo run --example setup_models`), digest-verified, and
-  cached under `~/.botspy/models/` (`BOTSPY_MODELS` overrides the
-  location). After that, everything is fully offline.
+- Live SQLite databases are read through temporary snapshot copies.
+  Read-only connections do not edit conversation records, but SQLite
+  can create or update WAL shared-memory sidecars.
+- Normal CLI operations run locally without network calls, telemetry,
+  or a server. Terminal output and the store contain sensitive data;
+  piping or copying them to another service is your choice.
+- Semantic search uses quantized all-MiniLM-L6-v2 through ONNX on your
+  CPU. The explicit [model setup step](#optional-semantic-search-setup)
+  downloads its weights and tokenizer from Hugging Face and verifies
+  pinned digests. Query and session content are not sent to that service.
 
 Both read-only behavior and WAL-safe snapshotting are pinned by
 executed specifications:
@@ -114,7 +123,8 @@ cargo install botspy --locked
 
 Prerequisites:
 
-- A Rust toolchain — install via [rustup](https://rustup.rs).
+- A current stable Rust toolchain — install or update it via
+  [rustup](https://rustup.rs).
 - A C compiler: SQLite is bundled and compiled at build time.
   - macOS: Xcode Command Line Tools (`xcode-select --install`)
   - Linux: `build-essential` (Debian/Ubuntu) or your distribution's
@@ -124,13 +134,40 @@ Prerequisites:
 BotSpy is built and tested on Linux (x86_64 and arm64, glibc and musl),
 macOS (Apple Silicon and Intel), and Windows (MSVC).
 
+Start with `botspy --help`, then `botspy sources` or `botspy doctor`.
+For a text-only local index, run `botspy import --no-embed`, then
+`botspy search 'your query'`. The index copies session content to your
+local store; use a deliberate source selection and location.
+
+### Optional semantic search setup
+
+The installed CLI has no model-download command. Run the setup example
+from a checkout of the release matching `botspy --version`:
+
+```bash
+git clone https://github.com/DataParade-io/BotSpy.git
+cd BotSpy
+git checkout v0.3.0 # replace with the installed release tag
+cargo run --example setup_models
+```
+
+The cache is `BOTSPY_MODELS` when set, otherwise
+`$HOME/.botspy/models`. `--home` and `BOTSPY_HOME` do not move this cache.
+Run setup before the first import into a store intended for semantic
+search, then omit `--no-embed` when importing. Setup alone does not add
+vectors to an existing text-only store, and unchanged sessions are not
+re-embedded by `--full`. To index existing source history with embeddings,
+import into a new `--db` path after setup. See
+[search setup](https://github.com/DataParade-io/BotSpy/blob/develop/docs/search.md).
+
 ## Usage
 
 The examples below come from BotSpy's synthetic test corpus (`--home
 /tmp/demo` points at fixture agent files). Paths, ids, and titles are
-fixtures, not real sessions. Every verb accepts `-o human` (default),
-`-o json`, or `-o ndjson`; machine modes never truncate. Add
-`--no-truncate` in human mode for full ids and paths.
+fixtures, not real sessions. Most verbs support `-o human` (default),
+`-o json`, and `-o ndjson`; machine modes never truncate. `import`
+currently prints a human report even when an output flag is supplied.
+Add `--no-truncate` in human mode for full ids and paths.
 
 ### See what BotSpy can read
 
@@ -299,8 +336,11 @@ change without writing.
 
 ### One-shot import into the local store
 
-`botspy import` runs a single CDC pass with pruning on: sessions the
-sources no longer report are removed. The default store is
+`botspy import` runs a single refresh pass with pruning on: sessions the
+selected sources no longer report are removed. Sessions from unselected
+agents remain in the store. A missing or unreadable selected source can
+look empty to discovery; use `scan --once` when you need a pass without
+pruning. The default store is
 `<home>/.botspy/store.db` (override with `--db <path>`). Use `--full` to
 re-extract every session from byte zero; `--dry-run` reports what would
 land and writes nothing.
@@ -318,8 +358,10 @@ prune-on shape for scripts and ad-hoc refreshes.
 
 `botspy search` reads the local store, not the live sources. Text mode
 (FTS5) is the default; `--mode semantic` and `--mode hybrid` need
-embeddings (omit `--no-embed` on import, or run
-`cargo run --example setup_models` once).
+both the model cache and stored embeddings. Complete
+[model setup](#optional-semantic-search-setup) before importing into a
+new store, then omit `--no-embed`. A model download alone does not
+populate the vector index.
 
 ```console
 $ botspy search parser --home /tmp/demo --no-truncate --db /tmp/demo/.botspy/store.db
@@ -360,16 +402,39 @@ botspy sources -o json | jq -r '.[] | select(.status != "ok") | .name'
 ## The library: one local store, searchable
 
 As a library, BotSpy keeps everything it ingests in one local SQLite
-store (WAL mode, with the sqlite-vec extension) at
-`~/.botspy/store.db` (`BOTSPY_HOME` moves it). You register the
-read-only adapters, ingest their sessions, and query through one
-interface:
+store (WAL mode, with the sqlite-vec extension). `Store::open(path)`
+uses an explicit path; `Store::open_default()` uses
+`~/.botspy/store.db` (`BOTSPY_HOME` moves it). Add the library with
+`cargo add botspy`, then register adapters, ingest their sessions, and
+query the store:
+
+```rust
+use botspy::{adapter::Adapter, adapters::claude_code::ClaudeCodeSource, store::Store};
+use std::sync::Arc;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let store = Store::open("botspy-demo.db")?;
+    let sources: Vec<Arc<dyn Adapter>> = vec![Arc::new(ClaudeCodeSource::new(
+        "path/to/claude/projects",
+    ))];
+    let report = store.ingest(&sources)?;
+    println!("{} new sessions", report.new);
+    for session in store.query().sessions() {
+        println!("{}: {} messages", session.id, session.message_count);
+    }
+    Ok(())
+}
+```
+
+Replace the example source path with a directory you intend to read.
+This example makes a plaintext local copy and does not enable embeddings.
+The query interface supports:
 
 - iteration over sessions, messages, and parts in order, with filters
   by source, project, part kind, and time window pushed down to SQLite;
 - FTS5 text search, ranked and filter-composable;
 - semantic search over all-MiniLM-L6-v2 embeddings (computed on your
-  CPU, after the one-time `cargo run --example setup_models` fetch),
+  CPU, after explicit model setup and embedding-enabled ingest),
   with a relevance floor so noise never ranks;
 - hybrid search that fuses the lexical and semantic halves.
 
@@ -411,6 +476,29 @@ The docs pages are the deep reference; this README stays the overview.
   — a session meter, local sentiment analysis, and a metrics stub
 - Repository: [github.com/DataParade-io/BotSpy](https://github.com/DataParade-io/BotSpy)
 
+## Development
+
+Use a current stable Rust toolchain and the C compiler listed under
+Install. The tests use synthetic fixtures; no personal agent histories
+are needed. From a repository checkout:
+
+```bash
+rustup update stable
+export BOTSPY_MODELS="$PWD/target/botspy-models"
+cargo +stable run --example setup_models
+cargo +stable test
+cargo +stable fmt --all --check
+cargo +stable clippy --all-targets -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo +stable doc --no-deps
+```
+
+The setup step downloads verified public model assets into the explicit
+ignored build directory. `cargo test` includes the executable Gherkin
+suite; `cargo test --test bdd` runs that suite on its own. See
+[CONTRIBUTING_AGENT.md](https://github.com/DataParade-io/BotSpy/blob/develop/CONTRIBUTING_AGENT.md)
+for the required Kanbus issue, specification-first workflow, receipt
+hooks, and pull requests into `develop`.
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see the unchanged copyright notice and terms in [LICENSE](LICENSE).

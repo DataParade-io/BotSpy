@@ -62,6 +62,34 @@ Feature: botspy import
     And stdout reports "1 pruned"
     And stdout reports "11 unchanged"
 
+  @scoped_pruning
+  Scenario: A filtered import preserves sessions belonging to other sources
+    When I run "botspy import --no-embed --db {out_dir}/selected.db" against the fixture home
+    And I run "botspy import --source claude_code --no-embed --db {out_dir}/selected.db" against the fixture home
+    Then the exit code is 0
+    And stdout reports "0 pruned"
+    When I run "botspy sessions --db {out_dir}/selected.db" against the fixture home
+    Then the exit code is 0
+    And stdout reports "12 sessions"
+
+  @scoped_pruning
+  Scenario: A filtered import prunes missing selected sessions and preserves all others
+    When I run "botspy import --no-embed --db {out_dir}/selected-prune.db" against the fixture home
+    And the fixture home's solo transcript is deleted
+    And I run "botspy import --source claude_code --no-embed --dry-run --db {out_dir}/selected-prune.db" against the fixture home
+    Then the exit code is 0
+    And stdout reports "1 pruned"
+    And stdout reports "dry run"
+    When I run "botspy sessions --db {out_dir}/selected-prune.db" against the fixture home
+    Then the exit code is 0
+    And stdout reports "12 sessions"
+    When I run "botspy import --source claude_code --no-embed --db {out_dir}/selected-prune.db" against the fixture home
+    Then the exit code is 0
+    And stdout reports "1 pruned"
+    When I run "botspy sessions --db {out_dir}/selected-prune.db" against the fixture home
+    Then the exit code is 0
+    And stdout reports "11 sessions"
+
   Scenario: Sessions read from the store once it exists
     When I run "botspy import --db {out_dir}/imported.db" against the fixture home
     And I run "botspy sessions --db {out_dir}/imported.db" against an empty home

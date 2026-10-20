@@ -14,14 +14,10 @@
 use crate::importer::SkipCounter;
 use crate::schema::{Agent, KnownPart, Message, Part, Provenance, Role, ToolArguments};
 use crate::session::SessionSummary;
-use crate::snapshot::snapshot_sqlite;
-use rusqlite::OpenFlags;
+use crate::snapshot::SnapshotConnection;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-static SNAPSHOT_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// What discovery saw in the summaries index.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -76,15 +72,8 @@ impl AntigravitySource {
     fn snapshot_connection(
         &self,
         db: &Path,
-    ) -> Result<rusqlite::Connection, crate::snapshot::SnapshotError> {
-        let dir = std::env::temp_dir().join("botspy-ag-snaps").join(format!(
-            "{}-{}",
-            std::process::id(),
-            SNAPSHOT_SEQ.fetch_add(1, Ordering::SeqCst)
-        ));
-        let snapshot = snapshot_sqlite(db, &dir)?;
-        rusqlite::Connection::open_with_flags(snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(crate::snapshot::SnapshotError::Sqlite)
+    ) -> Result<SnapshotConnection, crate::snapshot::SnapshotError> {
+        SnapshotConnection::open(db)
     }
 
     /// The summaries index: conversation id, name, updated_at.
