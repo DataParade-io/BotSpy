@@ -34,10 +34,34 @@
         "model": "GPT-6",
         "name": "codex-release"
       }
+    },
+    {
+      "id": "a3b61089-ddf2-48c0-aa08-d2aef74a7de8",
+      "author": "example-user",
+      "text": "Normal optimized installation from the tested local package passed the synthetic CLI smoke. Parent independent source-safety/scoped-pruning review gate is satisfied; full platform CI remains pending before merge. Release PR text is prepared; required review caveats will land with release preparation. No new credential or grant requested.",
+      "created_at": "2026-10-20T13:37:29.381555Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
+    },
+    {
+      "id": "54407f63-dabe-49f8-a6e4-db504652b731",
+      "author": "example-user",
+      "text": "Usage reset confirmed with successful Git/GitHub commands. Independent parent review accepted 4534af2 with no blocking source-safety/pruning defect. Publication remains pending: ARM musl CI found an actionable test-only direct-exec failure under QEMU, now assigned for correction before merge. No new package, credential, grant or ownership change attempted.",
+      "created_at": "2026-10-20T14:08:34.091773Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
     }
   ],
   "created_at": "2026-10-20T12:42:39.852038Z",
-  "updated_at": "2026-10-20T13:17:25.230527Z",
+  "updated_at": "2026-10-20T14:08:34.091787Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",

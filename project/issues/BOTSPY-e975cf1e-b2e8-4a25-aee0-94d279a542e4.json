@@ -34,10 +34,22 @@
         "model": "gpt-6",
         "name": "botspy-release-readiness"
       }
+    },
+    {
+      "id": "e9d2da4f-865a-4d4b-ae2c-edbe19c90bb5",
+      "author": "example-user",
+      "text": "Product CI 39428517097 failed only ARM musl: new automatic-snapshot-cleanup BDD step directly executes CARGO_BIN_EXE_botspy and gets Exec format error under cross/QEMU at tests/steps/sqlite_steps.rs:186. 289 other scenarios passed; eight other CI jobs and receipt gate passed. This is a test subprocess portability defect, not a source-safety assertion failure. Fix the harness without skipping the scenario or changing production behavior; then run focused checks and new-head CI. No blind rerun or merge attempted.",
+      "created_at": "2026-10-20T14:08:34.044001Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
     }
   ],
   "created_at": "2026-10-20T12:55:54.534453Z",
-  "updated_at": "2026-10-20T13:02:57.036065Z",
+  "updated_at": "2026-10-20T14:08:34.044018Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",

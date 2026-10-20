@@ -17,10 +17,22 @@
       "text": "Accurate purpose/setup/use documentation and 10 corrected D2 diagrams (both PNG themes and SVG) are in PR #28. All 12 diagrams rendered; 24 PNG signatures/dimensions and 12 SVG documents validated; both themes of changed diagrams inspected. Logo dependency and unpublished factual launch draft remain tracked separately.",
       "created_at": "2026-10-20T13:13:48.868648Z",
       "comment_type": "default"
+    },
+    {
+      "id": "331fa7bb-bf64-4b74-8f87-5e9b21e8125f",
+      "author": "example-user",
+      "text": "Independent parent review accepted commit 4534af2 with no blocking defect and requested explicit residual limits. CLI/store/privacy documentation additions are prepared for the release PR: pruning is by agent type, not individual roots; missing or unreadable selected discovery can prune stored sessions; keep independent source/store backups and preview dry-run; explicit snapshot destinations must be idle and caller-controlled because validation is not a concurrency lock or hostile-parent-swap defense. No implementation expansion.",
+      "created_at": "2026-10-20T13:37:29.299809Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
     }
   ],
   "created_at": "2026-10-20T12:42:34.298498Z",
-  "updated_at": "2026-10-20T13:13:48.868658Z",
+  "updated_at": "2026-10-20T13:37:29.299824Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",
