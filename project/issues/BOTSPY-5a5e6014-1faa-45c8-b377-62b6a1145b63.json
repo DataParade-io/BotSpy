@@ -3,7 +3,7 @@
   "title": "Package test and publish through existing crates.io workflow",
   "description": "Build a clean distributable, install and smoke-test with synthetic sources; run required checks and land product PR to develop, then release preparation and develop-to-main promotion. No new credentials or publisher grants.",
   "type": "task",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "assignee": "codex-release",
   "creator": null,
@@ -17,7 +17,7 @@
   ],
   "comments": [],
   "created_at": "2026-10-20T12:42:39.852038Z",
-  "updated_at": "2026-10-20T12:43:29.550372Z",
+  "updated_at": "2026-10-20T12:51:23.770966Z",
   "closed_at": null,
   "agent": {
     "platform": "codex",

@@ -3,17 +3,25 @@
   "title": "Verify repository licensing and release receipts",
   "description": "Confirm DataParade-io ownership, preserve MIT copyright and terms, verify registry metadata, releases and existing authorized workflow.",
   "type": "task",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "assignee": "codex-release",
   "creator": null,
   "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
   "labels": [],
   "dependencies": [],
-  "comments": [],
+  "comments": [
+    {
+      "id": "a6663ab8-0aa9-401f-817e-d5d90150627a",
+      "author": "example-user",
+      "text": "Verified public DataParade-io/BotSpy identity and MIT license with unchanged Ryan copyright; local clean shared checkout and isolated source/board worktrees. Existing official crates.io sparse index and successful GitHub release confirm 0.3.0 already published. No ownership or licensing change needed. Registry API returned HTTP 403; official Cargo index provided version/checksum evidence.",
+      "created_at": "2026-10-20T12:51:23.324148Z",
+      "comment_type": "default"
+    }
+  ],
   "created_at": "2026-10-20T12:42:17.528632Z",
-  "updated_at": "2026-10-20T12:43:02.036424Z",
-  "closed_at": null,
+  "updated_at": "2026-10-20T12:51:23.415726Z",
+  "closed_at": "2026-10-20T12:51:23.415679Z",
   "agent": {
     "platform": "codex",
     "model": "gpt-6",

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "d192d2c4-bf30-4d3c-9ac5-c9d3a12561fe",
+  "issue_id": "BOTSPY-2406fcae-87d7-477b-aa8a-a8527ed6506a",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-20T12:50:20.615Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Apply selected source filters to stats",
+    "description": "The stats command accepts --source but currently counts all stored sources. Specify filtered aggregation with synthetic data, implement the advertised filter, and verify all grouping modes. Current limitation is documented.",
+    "issue_type": "bug",
+    "status": "open",
+    "priority": 2,
+    "assignee": "codex-release",
+    "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+    "labels": [],
+    "agent": {
+      "platform": "codex",
+      "model": "gpt-6",
+      "name": "botspy-release-readiness"
+    }
+  }
+}
