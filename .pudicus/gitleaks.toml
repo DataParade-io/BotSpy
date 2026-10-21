@@ -115,6 +115,10 @@ regexes = [
   # is the structural discriminator (bare session UUIDs are not).
   '''BOTSPY-[0-9a-f]{8}-[0-9a-f]{4}''',
   '''kanbus-[0-9a-f]{8}-[0-9a-f]{4}''',
+  # Kanbus 0.40+ records a public per-project UUID v4 as the top-level
+  # project_id key in .kanbus.yml (LeftBlock 0.3.3 rule). Indented keys and
+  # other keys stay detected.
+  '''^\n?project_id:[ \t]*[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}[ \t]*\r?$''',
 ]
 
 [[rules]]
