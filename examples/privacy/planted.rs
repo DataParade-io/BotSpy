@@ -44,13 +44,14 @@ impl Chars {
     }
 }
 
-const UPPER_DIGITS: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+/// AWS key ids use base32 (A-Z, 2-7), which is what scanners match.
+const BASE32: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const ALNUM: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const LOWER: &str = "abcdefghijklmnopqrstuvwxyz";
 
 /// A random fake AWS-style access key id: `AKIA` plus 16 characters.
 pub fn fake_aws_key(seed: u64) -> String {
-    format!("{}{}", "AKI", "A") + &Chars(seed | 1).pick(UPPER_DIGITS, 16)
+    format!("{}{}", "AKI", "A") + &Chars(seed | 1).pick(BASE32, 16)
 }
 
 /// A random fake GitHub-style token: `ghp_` plus 36 characters.
@@ -63,16 +64,17 @@ pub fn fake_database_url(seed: u64) -> String {
     let mut chars = Chars(seed | 1);
     let password = chars.pick(ALNUM, 16);
     format!(
-        "{}://app:{password}@db.internal.example:5432/app",
+        "{}://app:{password}@db.acme-prod.co:5432/app",
         "postgres"
     )
 }
 
-/// A random fake personal email on a reserved test domain.
+/// A random fake personal email. Scanners deliberately ignore reserved
+/// test domains such as `example.test`, so the demo uses an ordinary one.
 pub fn fake_email(seed: u64) -> String {
     let mut chars = Chars(seed | 1);
     format!(
-        "{}.{}@example.test",
+        "{}.{}@acme-mail.co",
         chars.pick(LOWER, 6),
         chars.pick(LOWER, 8)
     )
