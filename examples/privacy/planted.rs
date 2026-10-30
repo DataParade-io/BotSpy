@@ -63,10 +63,7 @@ pub fn fake_github_token(seed: u64) -> String {
 pub fn fake_database_url(seed: u64) -> String {
     let mut chars = Chars(seed | 1);
     let password = chars.pick(ALNUM, 16);
-    format!(
-        "{}://app:{password}@db.acme-prod.co:5432/app",
-        "postgres"
-    )
+    format!("{}://app:{password}@db.acme-prod.co:5432/app", "postgres")
 }
 
 /// A random fake personal email. Scanners deliberately ignore reserved

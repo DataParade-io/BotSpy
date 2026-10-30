@@ -31,9 +31,15 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 const STUB_NAME: &str = "leftblock-stub";
+/// Set by the wrapper script used under an emulating test runner; names the
+/// stub path whose sidecar files hold its configuration.
+const STUB_PATH_ENV: &str = "BOTSPY_LEFTBLOCK_STUB_PATH";
 
 /// If this process was started as the stub, act as the scanner and exit.
 pub fn maybe_run_as_stub() {
+    if let Some(path) = std::env::var_os(STUB_PATH_ENV) {
+        std::process::exit(run(Path::new(&path)));
+    }
     let Some(argv0) = std::env::args_os().next() else {
         return;
     };
@@ -55,11 +61,47 @@ pub fn install(dir: &Path, mode: &str) -> PathBuf {
     };
     let path = dir.join(name);
     let me = std::env::current_exe().expect("current exe");
-    if std::fs::hard_link(&me, &path).is_err() {
+    if let Some(runner) = emulating_runner() {
+        // Under cross (e.g. aarch64 musl on an x86 runner) the test binary
+        // runs through an emulator, and a child process cannot exec it
+        // directly. A wrapper script runs it through the same emulator.
+        write_wrapper(&path, &runner, &me);
+    } else if std::fs::hard_link(&me, &path).is_err() {
         std::fs::copy(&me, &path).expect("copy test executable as stub");
     }
     std::fs::write(sidecar(&path, "mode"), mode).expect("write stub mode");
     path
+}
+
+/// The `CARGO_TARGET_<TRIPLE>_RUNNER` command, when tests run under one.
+fn emulating_runner() -> Option<String> {
+    if cfg!(windows) {
+        return None;
+    }
+    std::env::vars()
+        .find(|(key, value)| {
+            key.starts_with("CARGO_TARGET_") && key.ends_with("_RUNNER") && !value.trim().is_empty()
+        })
+        .map(|(_, value)| value)
+}
+
+#[cfg(unix)]
+fn write_wrapper(path: &Path, runner: &str, exe: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let quote = |text: &str| format!("'{}'", text.replace('\'', "'\\''"));
+    let script = format!(
+        "#!/bin/sh\n{STUB_PATH_ENV}={}\nexport {STUB_PATH_ENV}\nexec {runner} {} \"$@\"\n",
+        quote(&path.to_string_lossy()),
+        quote(&exe.to_string_lossy()),
+    );
+    std::fs::write(path, script).expect("write stub wrapper");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+        .expect("make stub wrapper executable");
+}
+
+#[cfg(not(unix))]
+fn write_wrapper(_path: &Path, _runner: &str, _exe: &Path) {
+    unreachable!("emulating runners are only detected on unix");
 }
 
 pub fn sidecar(exe: &Path, extension: &str) -> PathBuf {
