@@ -473,7 +473,10 @@ The docs pages are the deep reference; this README stays the overview.
   and run with `cargo test --test bdd`; the specs are the source of
   truth, and the implementation is generated from them
 - Example consumers of the public API: [`examples/`](https://github.com/DataParade-io/BotSpy/blob/develop/examples/)
-  — a session meter, local sentiment analysis, and a metrics stub
+  — a session meter, local sentiment analysis, a metrics stub, and
+  [privacy controls](https://github.com/DataParade-io/BotSpy/blob/develop/examples/privacy/main.rs)
+  that find and redact secrets and personal data with LeftBlock
+  (`pipx install leftblock`) before any analysis runs
 - Repository: [github.com/DataParade-io/BotSpy](https://github.com/DataParade-io/BotSpy)
 
 ## Development

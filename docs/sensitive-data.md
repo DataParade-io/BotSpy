@@ -89,7 +89,28 @@ Search query text also transits the local embedder at search time
 (semantic and hybrid modes). The embedder runs on your CPU and sends
 nothing over the network.
 
-### 5. Not sensitive
+### 5. Piped to a local scanner (the privacy example only)
+
+`cargo run --example privacy` is an optional example consumer, not part
+of the `botspy` CLI. It reads sessions through the public API (no store
+involved) and pipes their text to a local process:
+
+| Place | Content |
+| --- | --- |
+| stdin of `leftblock scan --jsonl` (`leftblock` on `PATH`, or the executable named by `BOTSPY_LEFTBLOCK`) | Every text-bearing part (text, thinking, tool results, system text, tool-call arguments), one JSONL record each, keyed by an opaque index such as `s0/m3/p1` |
+| LeftBlock's private temp directory | Whatever LeftBlock stages while scanning: a `0700` directory it creates and deletes itself |
+| stdout of the example | `audit`: counts by rule and kind with provenance (agent, session id, message index, source file and line or row), never matched values. `redact`: the sessions' text with each finding replaced by `[REDACTED:<rule>]`, then meter and sentiment results computed on the redacted text only |
+
+The example writes no transcript text to disk, and nothing is sent over
+the network by the example or by a normal LeftBlock scan. The one
+exception is `--deep`: LeftBlock's OpenAI Privacy Filter may download
+model weights on first use; session text is not part of that download.
+Redacted output goes to stdout only, so the same cautions as section 4
+apply to terminal logs and redirected output. `--plant` generates a demo
+session of fake secrets in a private temp directory that the example
+removes when it finishes (a crash can leave it behind).
+
+### 6. Not sensitive
 
 | Place | Exact path | Why |
 | --- | --- | --- |

@@ -13,7 +13,9 @@ pub mod graph_steps;
 pub mod grok_steps;
 pub mod importer_steps;
 pub mod inline_steps;
+pub mod leftblock_stub;
 pub mod metadata_steps;
+pub mod privacy_steps;
 pub mod role_steps;
 pub mod schema_steps;
 pub mod session_steps;
@@ -154,6 +156,8 @@ pub struct BotSpyWorld {
     pub meter_report: Option<examples_steps::MeterReport>,
     /// The most recent sentiment report.
     pub sentiment_report: Option<examples_steps::SentimentReport>,
+    /// State of the privacy-example scenarios.
+    pub privacy: privacy_steps::PrivacyState,
     /// Sources of the example consumers, for the public-API checks.
     pub example_sources: Option<String>,
     /// Fixture home the CLI steps laid out for the current scenario.
