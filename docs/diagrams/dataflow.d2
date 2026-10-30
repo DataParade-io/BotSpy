@@ -125,6 +125,16 @@ output: {
   class: sensitive
 }
 
+privacy_example: {
+  label: "Privacy example (examples/privacy)\nreads sessions, redacts, then scores;\nwrites to stdout only, no transcript text to disk"
+  class: tool
+}
+
+leftblock: {
+  label: "Sensitive data: LeftBlock process\nlocal leftblock scan --jsonl\nprivate 0700 temp dir, deleted after;\nno network (--deep downloads model\nweights on first use only)"
+  class: sensitive
+}
+
 user: {
   label: User
   shape: person
@@ -159,3 +169,8 @@ query -> store: "reads (WAL readers).\nSensitive data: session history"
 query -> embedder: "embeds the query text\n(semantic, hybrid)"
 query -> output: "sessions, messages, hits.\nSensitive data: session history"
 output -> user: "displayed.\nSensitive data: session history"
+
+schema -> privacy_example: "optional example reads sessions\nthrough the public API, no store.\nSensitive data: session history"
+privacy_example -> leftblock: "text-bearing parts as JSONL on stdin.\nSensitive data: plaintext text"
+leftblock -> privacy_example: "findings: byte ranges, rule, kind.\nNever the matched value"
+privacy_example -> output: "audit counts, or redacted text.\nSensitive data: redacted session text"
