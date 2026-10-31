@@ -445,6 +445,34 @@ under
 and the store chapter in
 [`docs/store.md`](https://github.com/DataParade-io/BotSpy/blob/develop/docs/store.md).
 
+## Parallel sessions timeline
+
+`cargo run --example timeline` reads your sessions through the public API
+and writes one self-contained HTML file (inline SVG and CSS, no scripts,
+nothing loaded from elsewhere): sessions active at once on top, one
+swimlane per session below, grouped by project. Bars are active stretches,
+dotted lines are idle breaks (gaps that are outliers among that session's
+own gaps, so there is no fixed cutoff), and sub-agents and forks nest under
+the session that spawned them. Agents differ by pattern and legend label,
+not colour alone, and the page follows light and dark mode.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/timeline.dark.png">
+  <img src="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/timeline.light.png" alt="Timeline of a synthetic demo: a concurrency curve peaking at 5 sessions, and swimlanes for three projects with idle breaks, a fork and sub-agents">
+</picture>
+
+The picture above is rendered from the synthetic `--demo` corpus.
+
+```bash
+cargo run --example timeline -- --demo            # try it on made-up sessions
+cargo run --example timeline -- --since 2026-10-01T00:00:00Z --project web \
+  --source claude_code --source codex --out week.html [data-root]
+```
+
+Flags: `--since`, `--until`, `--project` (substring), `--source`
+(repeatable), `--titles`, `--out PATH` (default `timeline.html`), `--demo`.
+Session titles appear only with `--titles`; message text never appears.
+
 ## Learn more
 
 The docs pages are the deep reference; this README stays the overview.
@@ -476,7 +504,9 @@ The docs pages are the deep reference; this README stays the overview.
   — a session meter, local sentiment analysis, a metrics stub, and
   [privacy controls](https://github.com/DataParade-io/BotSpy/blob/develop/examples/privacy/main.rs)
   that find and redact secrets and personal data with LeftBlock
-  (`pipx install leftblock`) before any analysis runs
+  (`pipx install leftblock`) before any analysis runs, and a
+  [parallel sessions timeline](#parallel-sessions-timeline) that draws
+  how many sessions ran at once as one local HTML page
 - Repository: [github.com/DataParade-io/BotSpy](https://github.com/DataParade-io/BotSpy)
 
 ## Development
