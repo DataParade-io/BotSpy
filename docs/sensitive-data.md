@@ -110,6 +110,21 @@ apply to terminal logs and redirected output. `--plant` generates a demo
 session of fake secrets in a private temp directory that the example
 removes when it finishes (a crash can leave it behind).
 
+### Timeline page (the timeline example only)
+
+`cargo run --example timeline` is an optional example consumer, not part
+of the `botspy` CLI. It reads sessions through the public API and writes
+one HTML file (`timeline.html` in the current directory, or `--out`):
+
+| Place | Content |
+| --- | --- |
+| the HTML file | Session timing (message timestamps, active stretches, message counts per stretch), the agent, the project name (last path segment of the project id) and the first 8 characters of each session id, plus parent and spawn links. Session titles only with `--titles`. Never message text |
+
+The page is self-contained (inline SVG and CSS) and loads nothing over the
+network, but it is a file on disk: treat it like other output, and note
+that it still reveals when you worked and on which projects. `--demo`
+draws generated synthetic sessions and reads no data root.
+
 ### 6. Not sensitive
 
 | Place | Exact path | Why |

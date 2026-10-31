@@ -22,6 +22,7 @@ pub mod session_steps;
 pub mod sqlite_steps;
 pub mod status_steps;
 pub mod store_steps;
+pub mod timeline_steps;
 pub mod timestamp_steps;
 pub mod turn_steps;
 pub mod unified_steps;
@@ -158,6 +159,8 @@ pub struct BotSpyWorld {
     pub sentiment_report: Option<examples_steps::SentimentReport>,
     /// State of the privacy-example scenarios.
     pub privacy: privacy_steps::PrivacyState,
+    /// State of the timeline-example scenarios.
+    pub timeline: timeline_steps::TimelineState,
     /// Sources of the example consumers, for the public-API checks.
     pub example_sources: Option<String>,
     /// Fixture home the CLI steps laid out for the current scenario.
