@@ -449,16 +449,17 @@ and the store chapter in
 
 `cargo run --example timeline` reads your sessions through the public API
 and writes one self-contained HTML file (inline SVG and CSS, no scripts,
-nothing loaded from elsewhere): sessions active at once on top, one
-swimlane per session below, grouped by project. Bars are active stretches,
-dotted lines are idle breaks (gaps that are outliers among that session's
-own gaps, so there is no fixed cutoff), and sub-agents and forks nest under
-the session that spawned them. Agents differ by pattern and legend label,
-not colour alone, and the page follows light and dark mode.
+nothing loaded from elsewhere): agents working at once on top, one
+swimlane per session below, grouped by project. A bar is a turn, the agent
+working from your message to its last reply; the dotted line after it is
+the agent waiting for you, which does not count as working. There are no
+thresholds: turns come from who spoke, not from gap statistics. Sub-agents
+and forks nest under the session that spawned them. Agents differ by pattern
+and legend label, not colour alone, and the page follows light and dark mode.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/timeline.dark.png">
-  <img src="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/timeline.light.png" alt="Timeline of a synthetic demo: a concurrency curve peaking at 5 sessions, and swimlanes for three projects with idle breaks, a fork and sub-agents">
+  <img src="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/timeline.light.png" alt="Timeline of a synthetic demo: agents working at once peaking at 5, and swimlanes for three projects with turns, waiting for you, a fork and sub-agents">
 </picture>
 
 The picture above is rendered from the synthetic `--demo` corpus.
@@ -506,7 +507,7 @@ The docs pages are the deep reference; this README stays the overview.
   that find and redact secrets and personal data with LeftBlock
   (`pipx install leftblock`) before any analysis runs, and a
   [parallel sessions timeline](#parallel-sessions-timeline) that draws
-  how many sessions ran at once as one local HTML page
+  how many agents were working at once as one local HTML page
 - Repository: [github.com/DataParade-io/BotSpy](https://github.com/DataParade-io/BotSpy)
 
 ## Development

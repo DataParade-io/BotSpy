@@ -42,9 +42,9 @@ fn minutes_of(hhmm: &str) -> i64 {
     hours.parse::<i64>().expect("hours") * 60 + minutes.parse::<i64>().expect("minutes")
 }
 
-fn message(timestamp: Option<String>) -> Message {
+fn message_as(role: Role, timestamp: Option<String>) -> Message {
     Message {
-        role: Role::User,
+        role,
         parts: vec![Part::Known(KnownPart::Text {
             text: SECRET_TEXT.to_string(),
             extra: None,
@@ -65,12 +65,29 @@ fn session_at(id: &str, project: &str, day: &str, minutes: &[i64]) -> Session {
         project_id: project.to_string(),
         started_at: stamp(minutes[0]),
         last_activity_at: stamp(*minutes.last().expect("minutes")),
+        // One turn: the human speaks first, the agent answers.
         messages: minutes
             .iter()
-            .map(|minute| message(Some(stamp(*minute))))
+            .enumerate()
+            .map(|(i, minute)| {
+                let role = if i == 0 { Role::User } else { Role::Assistant };
+                message_as(role, Some(stamp(*minute)))
+            })
             .collect(),
         ..Session::default()
     }
+}
+
+/// A session from `(minute since midnight, human?)` messages.
+fn conversation(id: &str, project: &str, day: &str, stamps: &[(i64, bool)]) -> Session {
+    let minutes: Vec<i64> = stamps.iter().map(|(minute, _)| *minute).collect();
+    let mut session = session_at(id, project, day, &minutes);
+    let midnight = parse_time(&at(day, "00:00")).expect("day");
+    for (message, (minute, human)) in session.messages.iter_mut().zip(stamps) {
+        message.role = if *human { Role::User } else { Role::Assistant };
+        message.timestamp = Some(format_iso(midnight + minute * 60_000));
+    }
+    session
 }
 
 fn every_five(from: &str, to: &str) -> Vec<i64> {
@@ -89,11 +106,71 @@ fn session_active(world: &mut BotSpyWorld, id: String, from: String, to: String)
     );
 }
 
-#[given(regex = r#"^session "([^"]+)" has an idle break from ([0-9:]{5}) to ([0-9:]{5})$"#)]
-fn session_with_break(world: &mut BotSpyWorld, id: String, from: String, to: String) {
-    let mut minutes = every_five("09:00", &from);
-    minutes.extend(every_five(&to, "10:00"));
-    add(world, session_at(&id, "alpha", DAY, &minutes));
+#[given(regex = r#"^session "([^"]+)" is waiting for me from ([0-9:]{5}) to ([0-9:]{5})$"#)]
+fn session_waiting(world: &mut BotSpyWorld, id: String, from: String, to: String) {
+    // A turn from 09:00 to the start of the wait, then my message at its end.
+    let stamps = [
+        (minutes_of("09:00"), true),
+        (minutes_of(&from), false),
+        (minutes_of(&to), true),
+        (minutes_of("10:00"), false),
+    ];
+    add(world, conversation(&id, "alpha", DAY, &stamps));
+}
+
+#[given(regex = r#"^a session with three turns separated by waiting$"#)]
+fn session_with_three_turns(world: &mut BotSpyWorld) {
+    let mut stamps = Vec::new();
+    for (from, to) in [("09:00", "09:10"), ("09:40", "09:55"), ("11:00", "11:20")] {
+        stamps.push((minutes_of(from), true));
+        // The agent works in bursts of a few seconds inside the turn.
+        let mut at = minutes_of(from) + 1;
+        while at < minutes_of(to) {
+            stamps.push((at, false));
+            at += 2;
+        }
+        stamps.push((minutes_of(to), false));
+    }
+    add(world, conversation("turns", "alpha", DAY, &stamps));
+}
+
+#[given(regex = r#"^a session where I wrote twice before the agent replied$"#)]
+fn session_with_two_user_messages(world: &mut BotSpyWorld) {
+    let stamps = [
+        (minutes_of("09:00"), true),
+        (minutes_of("09:05"), true),
+        (minutes_of("09:20"), false),
+    ];
+    add(world, conversation("twice", "alpha", DAY, &stamps));
+}
+
+#[given(regex = r#"^a session whose last message is mine with no reply$"#)]
+fn session_with_trailing_user_message(world: &mut BotSpyWorld) {
+    let stamps = [
+        (minutes_of("09:00"), true),
+        (minutes_of("09:10"), false),
+        (minutes_of("09:30"), true),
+    ];
+    add(world, conversation("trailing", "alpha", DAY, &stamps));
+}
+
+#[given(regex = r#"^a session where tool results come back during a turn$"#)]
+fn session_with_tool_results(world: &mut BotSpyWorld) {
+    let stamps = [
+        (minutes_of("09:00"), true),
+        (minutes_of("09:05"), false),
+        (minutes_of("09:06"), true),
+        (minutes_of("09:10"), false),
+    ];
+    let mut session = conversation("tools", "alpha", DAY, &stamps);
+    // The 09:06 message is a user-role record holding only a tool result.
+    session.messages[2].parts = vec![Part::Known(KnownPart::ToolResult {
+        call_id: "call-1".to_string(),
+        text: Some(SECRET_TEXT.to_string()),
+        status: None,
+        extra: None,
+    })];
+    add(world, session);
 }
 
 #[given(regex = r#"^sessions in projects "([^"]+)" and "([^"]+)"$"#)]
@@ -105,67 +182,6 @@ fn sessions_in_projects(world: &mut BotSpyWorld, first: String, second: String) 
     for session in [late, early, other] {
         add(world, session);
     }
-}
-
-#[given(
-    regex = r#"^a session whose messages are a few minutes apart except one gap far longer than the rest$"#
-)]
-fn session_with_long_gap(world: &mut BotSpyWorld) {
-    let base = minutes_of("09:00");
-    let minutes: Vec<i64> = [0, 3, 7, 10, 13, 133, 136, 140]
-        .iter()
-        .map(|offset| base + offset)
-        .collect();
-    add(world, session_at("gappy", "alpha", DAY, &minutes));
-}
-
-#[given(
-    regex = r#"^a session of bursts seconds apart, a handful of 20 to 60 minute gaps and one 6 hour gap$"#
-)]
-fn session_with_real_shaped_gaps(world: &mut BotSpyWorld) {
-    let mut now = parse_time(&at(DAY, "09:00")).expect("start");
-    let mut stamps = vec![now];
-    for i in 0..600_i64 {
-        let gap = if i == 300 {
-            6 * 3600
-        } else if i % 80 == 79 {
-            20 * 60 + (i * 37) % (40 * 60)
-        } else {
-            2 + (i * 7) % 19
-        };
-        now += gap * 1000;
-        stamps.push(now);
-    }
-    let mut session = session_at("real-shaped", "alpha", DAY, &[0, 1]);
-    session.messages = stamps
-        .iter()
-        .map(|stamp| message(Some(format_iso(*stamp))))
-        .collect();
-    session.started_at = format_iso(stamps[0]);
-    session.last_activity_at = format_iso(*stamps.last().expect("stamps"));
-    add(world, session);
-}
-
-#[given(regex = r#"^a session whose records mostly share timestamps, with one long gap$"#)]
-fn session_with_same_instant_records(world: &mut BotSpyWorld) {
-    // Triples of records at one instant, a few seconds apart, then 3 hours.
-    let mut minutes_in_seconds: Vec<i64> = Vec::new();
-    let mut now = 0_i64;
-    for i in 0..40_i64 {
-        if i == 20 {
-            now += 3 * 3600;
-        } else {
-            now += 4 + (i * 5) % 9;
-        }
-        minutes_in_seconds.extend([now, now, now]);
-    }
-    let start = parse_time(&at(DAY, "09:00")).expect("start");
-    let mut session = session_at("same-instant", "alpha", DAY, &[0, 1]);
-    session.messages = minutes_in_seconds
-        .iter()
-        .map(|seconds| message(Some(format_iso(start + seconds * 1000))))
-        .collect();
-    add(world, session);
 }
 
 const HOME_USER: &str = "synthuser";
@@ -422,14 +438,15 @@ fn concurrency_curve_is(world: &mut BotSpyWorld, steps: String) {
     assert_eq!(curve(html(world)), expected);
 }
 
-#[then(regex = r#"^the page states a peak of ([0-9]+) concurrent sessions at ([0-9:]{5})$"#)]
+#[then(regex = r#"^the page states a peak of ([0-9]+) agents? working at once at ([0-9:]{5})$"#)]
 fn page_states_peak(world: &mut BotSpyWorld, peak: u32, time: String) {
-    let text = format!("Peak of {peak} concurrent sessions at {DAY} {time} UTC");
+    let plural = if peak == 1 { "" } else { "s" };
+    let text = format!("Peak of {peak} agent{plural} working at once at {DAY} {time} UTC");
     assert!(html(world).contains(&text), "page lacks {text:?}");
 }
 
 #[then(
-    regex = r#"^session "([^"]+)" does not count toward concurrency between ([0-9:]{5}) and ([0-9:]{5})$"#
+    regex = r#"^session "([^"]+)" does not count as working between ([0-9:]{5}) and ([0-9:]{5})$"#
 )]
 fn idle_not_counted(world: &mut BotSpyWorld, _id: String, from: String, to: String) {
     let steps = curve(html(world));
@@ -477,19 +494,6 @@ fn lanes_ordered_by_start(world: &mut BotSpyWorld) {
         .map(LaneView::id)
         .collect();
     assert_eq!(alpha, ["early-one", "late-one"]);
-}
-
-#[then(regex = r#"^that session's lane shows two active stretches$"#)]
-fn lane_has_two_stretches(world: &mut BotSpyWorld) {
-    let views = lanes(html(world));
-    assert_eq!(views.len(), 1);
-    let stretches = views[0].stretches();
-    assert_eq!(stretches.len(), 2);
-    assert!(
-        !stretches.iter().any(|tag| tag.contains("approximate")),
-        "message-based stretches are not approximate"
-    );
-    assert!(views[0].block.contains("class=\"idle\""));
 }
 
 #[then(regex = r#"^its lane shows one span marked approximate$"#)]
@@ -735,7 +739,7 @@ fn demo_overlaps(world: &mut BotSpyWorld) {
     assert!(peak >= 4, "peak concurrency is only {peak}");
 }
 
-#[then(regex = r#"^the demo shows idle breaks, a spawned sub-agent and an orphaned child$"#)]
+#[then(regex = r#"^the demo shows waiting for you, a spawned sub-agent and an orphaned child$"#)]
 fn demo_lineage(world: &mut BotSpyWorld) {
     let views = lanes(html(world));
     assert!(views.iter().any(|view| view.stretches().len() >= 2));
@@ -810,39 +814,6 @@ fn imports_only_botspy_and_std(_world: &mut BotSpyWorld) {
     }
 }
 
-#[then(regex = r#"^the 6 hour gap is an idle break$"#)]
-fn six_hour_gap_is_break(world: &mut BotSpyWorld) {
-    let views = lanes(html(world));
-    let idle = tags(&lane(&views, "real-shaped").block, "<line class=\"idle\"");
-    let six_hours = 6 * 3600 * 1000;
-    assert!(
-        idle.iter().any(|tag| {
-            let time = |name| parse_time(&attr(tag, name).expect("attribute")).expect("time");
-            time("data-end") - time("data-start") == six_hours
-        }),
-        "no idle break spans the 6 hour gap"
-    );
-}
-
-#[then(regex = r#"^the bursts between breaks stay in single stretches$"#)]
-fn bursts_stay_whole(world: &mut BotSpyWorld) {
-    let views = lanes(html(world));
-    let view = lane(&views, "real-shaped");
-    let stretches = view.stretches();
-    // 600 messages seconds apart: slivers would number in the hundreds.
-    assert!(stretches.len() <= 10, "{} stretches", stretches.len());
-    let messages: usize = stretches
-        .iter()
-        .map(|tag| {
-            attr(tag, "data-messages")
-                .expect("count")
-                .parse::<usize>()
-                .expect("n")
-        })
-        .sum();
-    assert_eq!(messages, 601);
-}
-
 #[then(regex = r#"^the project is labelled by the repository name$"#)]
 fn labelled_by_repository(world: &mut BotSpyWorld) {
     let page = html(world);
@@ -884,8 +855,55 @@ fn count_shown(world: &mut BotSpyWorld) {
     assert!(html(world).contains(">1 session</text>"));
 }
 
-#[then(regex = r#"^it has exactly one idle break$"#)]
-fn exactly_one_break(world: &mut BotSpyWorld) {
-    let views = lanes(html(world));
-    assert_eq!(tags(&views[0].block, "<line class=\"idle\"").len(), 1);
+fn only_lane(world: &BotSpyWorld) -> LaneView {
+    let mut views = lanes(html(world));
+    assert_eq!(views.len(), 1, "expected exactly one lane");
+    views.remove(0)
+}
+
+fn waiting_lines(view: &LaneView) -> Vec<String> {
+    tags(&view.block, "<line class=\"waiting\"")
+}
+
+#[then(
+    regex = r#"^that session's lane shows ([0-9]+) active stretch(?:es)? and ([0-9]+) waiting intervals?$"#
+)]
+fn lane_stretches_and_waiting(world: &mut BotSpyWorld, stretches: usize, waiting: usize) {
+    let view = only_lane(world);
+    assert_eq!(view.stretches().len(), stretches);
+    assert_eq!(waiting_lines(&view).len(), waiting);
+}
+
+#[then(regex = r#"^each stretch holds its own turn's messages$"#)]
+fn stretches_hold_their_messages(world: &mut BotSpyWorld) {
+    let view = only_lane(world);
+    let counts: Vec<usize> = view
+        .stretches()
+        .iter()
+        .map(|tag| {
+            attr(tag, "data-messages")
+                .expect("count")
+                .parse()
+                .expect("n")
+        })
+        .collect();
+    // Turns of 10, 15 and 20 minutes, a message every 2 minutes, plus the
+    // human's message and the final reply.
+    assert_eq!(counts, [7, 9, 12]);
+}
+
+#[then(regex = r#"^the stretch runs from ([0-9:]{5}) to ([0-9:]{5})$"#)]
+fn stretch_runs(world: &mut BotSpyWorld, from: String, to: String) {
+    let view = only_lane(world);
+    let stretches = view.stretches();
+    assert_eq!(attr(&stretches[0], "data-start"), Some(at(DAY, &from)));
+    assert_eq!(attr(&stretches[0], "data-end"), Some(at(DAY, &to)));
+}
+
+#[then(regex = r#"^the lane shows a waiting interval from ([0-9:]{5}) to ([0-9:]{5})$"#)]
+fn lane_waiting_interval(world: &mut BotSpyWorld, from: String, to: String) {
+    let lines = waiting_lines(&only_lane(world));
+    assert_eq!(lines.len(), 1);
+    assert_eq!(attr(&lines[0], "data-start"), Some(at(DAY, &from)));
+    assert_eq!(attr(&lines[0], "data-end"), Some(at(DAY, &to)));
 }

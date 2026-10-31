@@ -1,5 +1,5 @@
 //! A synthetic parallel-sessions corpus for `--demo`: several projects,
-//! overlapping sessions, idle breaks, a fork, spawned sub-agents, an orphan
+//! overlapping sessions, turns with waiting between them, a fork, spawned sub-agents, an orphan
 //! whose parent is missing and a session with no message timestamps. Every
 //! id, project and title is invented; nothing here comes from a real
 //! machine.
@@ -16,19 +16,24 @@ fn id(n: usize) -> String {
     format!("{}-0000-4000-8000-0000000000{n:02x}", PREFIXES[n % 12])
 }
 
-/// Message minutes: a run every `step` minutes with a little deterministic
-/// jitter, from minute `from` to minute `to` after the demo's 09:00 start.
-fn run(from: i64, to: i64, step: i64) -> Vec<i64> {
-    let jitter = [0, 1, -1, 2, 0, 1];
-    let mut minutes = vec![from];
-    let mut at = from;
-    let mut i = 0;
-    while at < to {
-        at = (at + (step + jitter[i % 6]).max(1)).min(to);
-        minutes.push(at);
-        i += 1;
+/// One message: minutes after the demo's 09:00 start, and whether the human
+/// wrote it.
+type Stamp = (i64, bool);
+
+/// The conversation of turns `(from, to)`: the human speaks at `from`, then
+/// the agent replies every few minutes until `to`.
+fn talk(turns: &[(i64, i64)]) -> Vec<Stamp> {
+    let mut stamps = Vec::new();
+    for (from, to) in turns {
+        stamps.push((*from, true));
+        let mut at = *from + 3;
+        while at < *to {
+            stamps.push((at, false));
+            at += 3;
+        }
+        stamps.push((*to, false));
     }
-    minutes
+    stamps
 }
 
 struct Spec {
@@ -36,7 +41,7 @@ struct Spec {
     agent: Agent,
     project: &'static str,
     title: &'static str,
-    minutes: Vec<i64>,
+    stamps: Vec<Stamp>,
     parent: Option<String>,
     subagent: Option<&'static str>,
     fork: bool,
@@ -45,15 +50,10 @@ struct Spec {
 fn build(base: Ms, spec: Spec) -> Session {
     let at = |minute: i64| format_iso(base + minute * 60_000);
     let messages = spec
-        .minutes
+        .stamps
         .iter()
-        .enumerate()
-        .map(|(i, minute)| Message {
-            role: if i % 2 == 0 {
-                Role::User
-            } else {
-                Role::Assistant
-            },
+        .map(|(minute, human)| Message {
+            role: if *human { Role::User } else { Role::Assistant },
             parts: vec![Part::Known(KnownPart::Text {
                 text: "synthetic message".to_string(),
                 extra: None,
@@ -66,8 +66,8 @@ fn build(base: Ms, spec: Spec) -> Session {
         id: id(spec.n),
         agent: spec.agent,
         project_id: spec.project.to_string(),
-        started_at: at(spec.minutes[0]),
-        last_activity_at: at(*spec.minutes.last().expect("minutes")),
+        started_at: at(spec.stamps[0].0),
+        last_activity_at: at(spec.stamps.last().expect("stamps").0),
         messages,
         parent_id: spec.parent,
         subagent: spec.subagent.map(|kind| SubagentInfo {
@@ -89,14 +89,10 @@ pub fn sessions() -> Vec<Session> {
         agent,
         project,
         title,
-        minutes,
+        stamps: minutes,
         parent: None,
         subagent: None,
         fork: false,
-    };
-    let join = |mut first: Vec<i64>, second: Vec<i64>| {
-        first.extend(second);
-        first
     };
     let mut list = vec![
         spec(
@@ -104,42 +100,42 @@ pub fn sessions() -> Vec<Session> {
             Agent::ClaudeCode,
             "checkout-web",
             "Rework the checkout form",
-            join(run(0, 60, 4), run(105, 150, 4)),
+            talk(&[(0, 18), (26, 45), (52, 60), (105, 128), (135, 150)]),
         ),
         spec(
             2,
             Agent::Cursor,
             "checkout-web",
             "Fix the cart badge",
-            run(20, 95, 5),
+            talk(&[(20, 38), (44, 70), (78, 95)]),
         ),
         spec(
             3,
             Agent::Codex,
             "billing-api",
             "Add invoice export",
-            join(run(10, 70, 4), run(120, 180, 5)),
+            talk(&[(10, 30), (36, 52), (58, 70), (120, 145), (150, 180)]),
         ),
         spec(
             4,
             Agent::ClaudeCode,
             "billing-api",
             "Tax rounding bug",
-            run(120, 210, 5),
+            talk(&[(120, 140), (148, 175), (185, 210)]),
         ),
         spec(
             5,
             Agent::Antigravity,
             "data-pipeline",
             "Backfill the events table",
-            run(30, 70, 3),
+            talk(&[(30, 50), (56, 70)]),
         ),
         spec(
             6,
             Agent::GrokBot,
             "data-pipeline",
             "Profile the nightly job",
-            run(55, 130, 6),
+            talk(&[(55, 75), (82, 100), (110, 130)]),
         ),
     ];
     let child = |n, agent, project, title, minutes, parent: usize, kind, fork| Spec {
@@ -151,7 +147,7 @@ pub fn sessions() -> Vec<Session> {
             agent,
             project,
             title,
-            minutes,
+            stamps: minutes,
             parent: None,
             subagent: None,
             fork: false,
@@ -162,7 +158,7 @@ pub fn sessions() -> Vec<Session> {
         Agent::ClaudeCode,
         "checkout-web",
         "Survey form libraries",
-        run(35, 55, 3),
+        talk(&[(30, 44)]),
         1,
         Some("explore"),
         false,
@@ -172,7 +168,7 @@ pub fn sessions() -> Vec<Session> {
         Agent::ClaudeCode,
         "checkout-web",
         "Write form tests",
-        run(112, 130, 3),
+        talk(&[(112, 126)]),
         1,
         Some("general"),
         false,
@@ -182,7 +178,7 @@ pub fn sessions() -> Vec<Session> {
         Agent::Codex,
         "billing-api",
         "Try a different export format",
-        run(85, 115, 4),
+        talk(&[(85, 100), (104, 115)]),
         3,
         None,
         true,
@@ -193,7 +189,7 @@ pub fn sessions() -> Vec<Session> {
         Agent::ClaudeCode,
         "billing-api",
         "Check rounding rules",
-        run(140, 160, 4),
+        talk(&[(140, 158)]),
         4,
         Some("explore"),
         false,

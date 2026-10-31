@@ -118,7 +118,7 @@ one HTML file (`timeline.html` in the current directory, or `--out`):
 
 | Place | Content |
 | --- | --- |
-| the HTML file | Session timing (message timestamps, active stretches, message counts per stretch), the agent, the project name (last path segment of the project id) and the first 8 characters of each session id, plus parent and spawn links. Session titles only with `--titles`. Never message text |
+| the HTML file | Session timing (when each turn started and ended, the waiting time between turns, message counts per turn), the agent, the project name (last path segment of the project id) and the first 8 characters of each session id, plus parent and spawn links. Session titles only with `--titles`. Never message text |
 
 The page is self-contained (inline SVG and CSS) and loads nothing over the
 network, but it is a file on disk: treat it like other output, and note

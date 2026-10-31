@@ -355,11 +355,11 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
     let _ = writeln!(page, "<style>\n{}\n</style>\n</head>\n<body>", css());
     page.push_str("<header>\n<h1>Parallel sessions timeline</h1>\n");
     if series.peak == 0 {
-        page.push_str("<p class=\"peak\">No session activity in the selected window.</p>\n");
+        page.push_str("<p class=\"peak\">No agent activity in the selected window.</p>\n");
     } else {
         let _ = writeln!(
             page,
-            "<p class=\"peak\">Peak of {} concurrent session{} at {} UTC</p>",
+            "<p class=\"peak\">Peak of {} agent{} working at once at {} UTC</p>",
             series.peak,
             if series.peak == 1 { "" } else { "s" },
             format_short(series.peak_at)
@@ -367,7 +367,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
     }
     let _ = writeln!(
         page,
-        "<p class=\"meta\">{} session{} in {} project{}, from {} to {} UTC. Activity comes from message timestamps; idle breaks are gaps unusually long for that session.{}</p>\n</header>",
+        "<p class=\"meta\">{} session{} in {} project{}, from {} to {} UTC. A bar is an agent working on a turn, from your message to its last reply; dotted lines are the agent waiting for you.{}</p>\n</header>",
         lanes.len(),
         if lanes.len() == 1 { "" } else { "s" },
         groups.len(),
@@ -393,7 +393,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
         );
     }
     page.push_str("<li class=\"legend-item\" data-key=\"approximate\"><svg width=\"34\" height=\"16\" aria-hidden=\"true\"><rect width=\"34\" height=\"16\" rx=\"3\" class=\"bar approximate-key\"/></svg><span>approximate</span><span class=\"pattern-name\">dashed outline: no message timestamps</span></li>\n");
-    page.push_str("<li class=\"legend-item\" data-key=\"idle\"><svg width=\"34\" height=\"16\" aria-hidden=\"true\"><line x1=\"0\" y1=\"8\" x2=\"34\" y2=\"8\" class=\"idle\"/></svg><span>idle break</span><span class=\"pattern-name\">dotted line</span></li>\n</ul>\n");
+    page.push_str("<li class=\"legend-item\" data-key=\"waiting\"><svg width=\"34\" height=\"16\" aria-hidden=\"true\"><line x1=\"0\" y1=\"8\" x2=\"34\" y2=\"8\" class=\"waiting\"/></svg><span>waiting for you</span><span class=\"pattern-name\">dotted line</span></li>\n</ul>\n");
 
     // Patterns, defined once for every SVG in the page.
     page.push_str("<svg class=\"defs\" width=\"0\" height=\"0\" aria-hidden=\"true\"><defs>\n");
@@ -440,7 +440,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
     }
     let _ = writeln!(
         page,
-        "<text class=\"axis\" x=\"8\" y=\"{:.1}\">Sessions active at once</text>",
+        "<text class=\"axis\" x=\"8\" y=\"{:.1}\">Agents working at once</text>",
         CHART_TOP + 10.0
     );
     if let Some((first, _)) = series.steps.first() {
@@ -456,7 +456,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
             .collect();
         let _ = writeln!(
             page,
-            "<path class=\"concurrency\" d=\"{d}\" data-peak=\"{}\" data-peak-at=\"{}\" data-steps=\"{}\"><title>Sessions active at once; peak {} at {} UTC</title></path>",
+            "<path class=\"concurrency\" d=\"{d}\" data-peak=\"{}\" data-peak-at=\"{}\" data-steps=\"{}\"><title>Agents working at once; peak {} at {} UTC</title></path>",
             series.peak,
             format_iso(series.peak_at),
             steps.join(";"),
@@ -567,7 +567,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                     let previous = lane.activity.stretches[i - 1].end;
                     let _ = writeln!(
                         page,
-                        "<line class=\"idle\" x1=\"{:.1}\" y1=\"{mid:.1}\" x2=\"{:.1}\" y2=\"{mid:.1}\" data-start=\"{}\" data-end=\"{}\"><title>Idle break, {} ({} to {} UTC)</title></line>",
+                        "<line class=\"waiting\" x1=\"{:.1}\" y1=\"{mid:.1}\" x2=\"{:.1}\" y2=\"{mid:.1}\" data-start=\"{}\" data-end=\"{}\"><title>Waiting for you, {} ({} to {} UTC)</title></line>",
                         x(previous),
                         x(stretch.start),
                         format_iso(previous),
@@ -672,7 +672,7 @@ fn css() -> String {
     );
     css.push_str(".concurrency{fill:var(--curve);stroke:var(--curve-line);stroke-width:1.5}.peak-mark{fill:var(--curve-line);stroke:var(--bg);stroke-width:2}\n");
     css.push_str(".project-label{font-size:13px;font-weight:700;fill:var(--fg)}.lane-bg{fill:var(--lane)}.lane-label{font-size:12px;fill:var(--fg)}.nest{fill:var(--muted);font-size:12px}.note{font-size:11px;font-style:italic;fill:var(--muted)}\n");
-    css.push_str(".bar{stroke:var(--edge);stroke-width:1}.stretch.approximate{stroke-dasharray:4 3;fill-opacity:.6}.approximate-key{stroke-dasharray:4 3;fill:var(--lane)}.idle{stroke:var(--muted);stroke-width:2;stroke-dasharray:2 3}\n");
+    css.push_str(".bar{stroke:var(--edge);stroke-width:1}.stretch.approximate{stroke-dasharray:4 3;fill-opacity:.6}.approximate-key{stroke-dasharray:4 3;fill:var(--lane)}.waiting{stroke:var(--muted);stroke-width:2;stroke-dasharray:2 3}\n");
     css.push_str(".spawn{stroke:var(--spawn);stroke-width:1.5;fill:none}.spawn-dot{fill:var(--spawn)}.mark{fill:var(--pat);stroke:var(--pat)}footer{color:var(--muted);font-size:12px;margin-top:12px}\n");
     for agent in [
         Agent::ClaudeCode,

@@ -4,27 +4,30 @@ Feature: Parallel sessions timeline
   concurrently, where it overlapped, and how sessions fanned out into
   sub-agents. The timeline example reads sessions through the BotSpy public
   API and writes one self-contained local HTML page: a concurrency curve on
-  top, project-grouped swimlanes below. Idle detection has no fixed cutoff:
-  a gap is idle when it is an outlier among that session's own gaps (Tukey
-  upper fence on the logarithm of the non-zero gaps; records sharing a
-  timestamp are never a pause); a session with fewer than 4 non-zero gaps is one stretch; a session
-  without message timestamps is one span marked approximate. Titles are off
-  unless asked for, and message text never appears.
+  top, project-grouped swimlanes below. Activity is defined by what the agent
+  was doing, with no thresholds: a bar is a turn, from a human message to the
+  last non-human message (assistant, tool, system) before the next human
+  message. The time from there to the next human message is the agent
+  waiting for you, drawn as a dotted line and not counted as working. Turns
+  never have zero length, so a trailing human message with no reply is
+  dropped. A session without message timestamps is one span marked
+  approximate.
   The scenarios generate their sessions at run time and assert on the
   rendered page's structure, text and attributes.
   Evidence: BOTSPY-8739de (parallel sessions timeline epic).
 
-  Scenario: Overlapping active stretches add up
+  Scenario: Overlapping turns add up to agents working at once
     Given session "a" active from 09:00 to 10:00
     And session "b" active from 09:30 to 11:00
     When the timeline example renders
     Then the concurrency curve is 1 from 09:00, 2 from 09:30, 1 from 10:00 and 0 from 11:00
-    And the page states a peak of 2 concurrent sessions at 09:30
+    And the page states a peak of 2 agents working at once at 09:30
 
-  Scenario: Idle gaps do not count as active
-    Given session "a" has an idle break from 09:20 to 09:50
+  Scenario: Waiting for me does not count as working
+    Given session "a" is waiting for me from 09:20 to 09:50
     When the timeline example renders
-    Then session "a" does not count toward concurrency between 09:20 and 09:50
+    Then session "a" does not count as working between 09:20 and 09:50
+    And the lane shows a waiting interval from 09:20 to 09:50
 
   Scenario: Lanes are grouped by project and ordered by start
     Given sessions in projects "alpha" and "beta"
@@ -32,22 +35,29 @@ Feature: Parallel sessions timeline
     Then each project has a labelled group of lanes
     And lanes within a group are ordered by start time
 
-  Scenario: An unusually long gap splits a session into stretches
-    Given a session whose messages are a few minutes apart except one gap far longer than the rest
+  Scenario: Each turn is one stretch and the time between turns is waiting
+    Given a session with three turns separated by waiting
     When the timeline example renders
-    Then that session's lane shows two active stretches
+    Then that session's lane shows 3 active stretches and 2 waiting intervals
+    And each stretch holds its own turn's messages
 
-  Scenario: An overnight gap is a break and bursts stay one stretch
-    Given a session of bursts seconds apart, a handful of 20 to 60 minute gaps and one 6 hour gap
+  Scenario: Consecutive human messages extend the turn's start
+    Given a session where I wrote twice before the agent replied
     When the timeline example renders
-    Then the 6 hour gap is an idle break
-    And the bursts between breaks stay in single stretches
+    Then that session's lane shows 1 active stretch and 0 waiting intervals
+    And the stretch runs from 09:00 to 09:20
 
-  Scenario: Records sharing a timestamp never break a session
-    Given a session whose records mostly share timestamps, with one long gap
+  Scenario: A trailing human message with no reply is dropped
+    Given a session whose last message is mine with no reply
     When the timeline example renders
-    Then that session's lane shows two active stretches
-    And it has exactly one idle break
+    Then that session's lane shows 1 active stretch and 0 waiting intervals
+    And the stretch runs from 09:00 to 09:10
+
+  Scenario: Tool results coming back do not end the agent's turn
+    Given a session where tool results come back during a turn
+    When the timeline example renders
+    Then that session's lane shows 1 active stretch and 0 waiting intervals
+    And the stretch runs from 09:00 to 09:10
 
   Scenario: A session without message timestamps is approximate
     Given a session with a start and last-activity time but no message timestamps
@@ -121,7 +131,7 @@ Feature: Parallel sessions timeline
   Scenario: The demo corpus shows parallel work
     When the timeline example renders with "--demo"
     Then the demo shows several projects with overlapping sessions
-    And the demo shows idle breaks, a spawned sub-agent and an orphaned child
+    And the demo shows waiting for you, a spawned sub-agent and an orphaned child
     And the demo contains no real paths, usernames or emails
 
   Scenario: The page is written to the requested path
