@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "fed43485-36fc-4d79-9ebe-ed1017600345",
+  "issue_id": "BOTSPY-e5664826-0f91-455d-b734-36b5e52df776",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T14:23:51.298Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Write the timeline feature spec and step definitions",
+    "description": "Spec task. Write `features/04_examples/timeline.feature` from the stories' scenarios (BOTSPY-d12b14 BOTSPY-85c13b BOTSPY-97cf37 BOTSPY-ad7d0a BOTSPY-c2e1c6 BOTSPY-584ba5) and the Rust step definitions in `tests/steps`, wired into `tests/bdd.rs` like the privacy example. Build parallel and spawned sessions as synthetic fixtures generated at test time (no real paths, usernames or session data). Done when the scenarios are executable and failing.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+    "labels": [],
+    "agent": {
+      "platform": "claude_code",
+      "model": "Opus 5.5",
+      "name": "LeftBlock owner session"
+    }
+  }
+}

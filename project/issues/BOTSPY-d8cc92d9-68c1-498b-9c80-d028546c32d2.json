@@ -1,0 +1,30 @@
+{
+  "id": "BOTSPY-d8cc92d9-68c1-498b-9c80-d028546c32d2",
+  "title": "Lineage: nest spawned sessions under parents",
+  "description": "Use the session graph (parent / spawned-by) to order and indent lanes, draw spawn connectors, and handle children whose parent is filtered out. Done when the spawn lineage scenarios pass.",
+  "type": "task",
+  "status": "open",
+  "priority": 2,
+  "assignee": null,
+  "creator": null,
+  "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+  "labels": [],
+  "dependencies": [
+    {
+      "target": "BOTSPY-e5664826-0f91-455d-b734-36b5e52df776",
+      "type": "blocked-by"
+    }
+  ],
+  "comments": [],
+  "created_at": "2026-10-31T14:23:51.389677Z",
+  "updated_at": "2026-10-31T14:23:51.585016Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "claude_code",
+    "model": "Opus 5.5",
+    "name": "LeftBlock owner session"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}
