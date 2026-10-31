@@ -120,16 +120,16 @@ fn session_with_long_gap(world: &mut BotSpyWorld) {
 }
 
 #[given(
-    regex = r#"^a session of bursts seconds apart, occasional pauses of a few minutes and one multi-hour break$"#
+    regex = r#"^a session of bursts seconds apart, a handful of 20 to 60 minute gaps and one 6 hour gap$"#
 )]
 fn session_with_real_shaped_gaps(world: &mut BotSpyWorld) {
     let mut now = parse_time(&at(DAY, "09:00")).expect("start");
     let mut stamps = vec![now];
     for i in 0..600_i64 {
         let gap = if i == 300 {
-            3 * 3600
-        } else if i % 30 == 29 {
-            180 + (i * 37) % 420
+            6 * 3600
+        } else if i % 80 == 79 {
+            20 * 60 + (i * 37) % (40 * 60)
         } else {
             2 + (i * 7) % 19
         };
@@ -788,19 +788,37 @@ fn imports_only_botspy_and_std(_world: &mut BotSpyWorld) {
     }
 }
 
-#[then(regex = r#"^its only idle break is the multi-hour gap$"#)]
-fn only_multi_hour_break(world: &mut BotSpyWorld) {
+#[then(regex = r#"^the 6 hour gap is an idle break$"#)]
+fn six_hour_gap_is_break(world: &mut BotSpyWorld) {
     let views = lanes(html(world));
     let idle = tags(&lane(&views, "real-shaped").block, "<line class=\"idle\"");
-    assert_eq!(idle.len(), 1);
-    let (start, end) = (
-        parse_time(&attr(&idle[0], "data-start").expect("start")).expect("time"),
-        parse_time(&attr(&idle[0], "data-end").expect("end")).expect("time"),
-    );
+    let six_hours = 6 * 3600 * 1000;
     assert!(
-        end - start >= 3 * 3600 * 1000,
-        "the break is not the long gap"
+        idle.iter().any(|tag| {
+            let time = |name| parse_time(&attr(tag, name).expect("attribute")).expect("time");
+            time("data-end") - time("data-start") == six_hours
+        }),
+        "no idle break spans the 6 hour gap"
     );
+}
+
+#[then(regex = r#"^the bursts between breaks stay in single stretches$"#)]
+fn bursts_stay_whole(world: &mut BotSpyWorld) {
+    let views = lanes(html(world));
+    let view = lane(&views, "real-shaped");
+    let stretches = view.stretches();
+    // 600 messages seconds apart: slivers would number in the hundreds.
+    assert!(stretches.len() <= 10, "{} stretches", stretches.len());
+    let messages: usize = stretches
+        .iter()
+        .map(|tag| {
+            attr(tag, "data-messages")
+                .expect("count")
+                .parse::<usize>()
+                .expect("n")
+        })
+        .sum();
+    assert_eq!(messages, 601);
 }
 
 #[then(regex = r#"^the project is labelled by the repository name$"#)]

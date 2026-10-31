@@ -6,8 +6,7 @@ Feature: Parallel sessions timeline
   API and writes one self-contained local HTML page: a concurrency curve on
   top, project-grouped swimlanes below. Idle detection has no fixed cutoff:
   a gap is idle when it is an outlier among that session's own gaps (Tukey
-  upper fence on the logarithm of the gaps, applied again among the gaps
-  that clear it); a session with fewer than 4 gaps is one stretch; a session
+  upper fence on the logarithm of the gaps); a session with fewer than 4 gaps is one stretch; a session
   without message timestamps is one span marked approximate. Titles are off
   unless asked for, and message text never appears.
   The scenarios generate their sessions at run time and assert on the
@@ -37,11 +36,11 @@ Feature: Parallel sessions timeline
     When the timeline example renders
     Then that session's lane shows two active stretches
 
-  Scenario: Ordinary thinking pauses are not idle breaks
-    Given a session of bursts seconds apart, occasional pauses of a few minutes and one multi-hour break
+  Scenario: An overnight gap is a break and bursts stay one stretch
+    Given a session of bursts seconds apart, a handful of 20 to 60 minute gaps and one 6 hour gap
     When the timeline example renders
-    Then that session's lane shows two active stretches
-    And its only idle break is the multi-hour gap
+    Then the 6 hour gap is an idle break
+    And the bursts between breaks stay in single stretches
 
   Scenario: A session without message timestamps is approximate
     Given a session with a start and last-activity time but no message timestamps

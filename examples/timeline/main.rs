@@ -27,9 +27,8 @@
 //! There is no fixed cutoff. A gap between consecutive messages is idle
 //! when it is an outlier among that session's own gaps: above Tukey's upper
 //! fence, Q3 + 1.5 IQR, taken on ln(gap) because gaps are heavy-tailed
-//! (seconds between tool calls, minutes of thinking, hours away). When 4 or
-//! more gaps clear that fence, it is applied once more among just those, so
-//! ordinary thinking pauses are not breaks. A session with fewer than 4
+//! (seconds between tool calls, minutes of thinking, hours away). A session
+//! with fewer than 4
 //! gaps is one stretch,
 //! and a session with no message timestamps is one started..last-activity
 //! span marked "approximate".

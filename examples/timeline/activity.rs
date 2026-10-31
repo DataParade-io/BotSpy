@@ -203,15 +203,13 @@ fn tukey_fence(values: &[f64]) -> f64 {
 }
 
 /// The idle threshold of a session's own gaps, as a natural logarithm of
-/// milliseconds: a gap whose `ln` is above this is an idle break. `None` when there are too few gaps
-/// (under 4) to estimate.
+/// milliseconds: a gap whose `ln` is above this is an idle break. `None`
+/// when there are too few gaps (under 4) to estimate.
 ///
 /// Gaps are heavy-tailed (seconds between tool calls, minutes of thinking,
-/// hours away), so the Tukey fence is taken on `ln(gap)`. Real sessions
-/// have so many short gaps that the first fence still falls on ordinary
-/// thinking pauses; when 4 or more gaps clear it, the same fence is applied
-/// again among just those, so only gaps that are outliers even among the
-/// long ones count as idle. Nothing is a fixed cutoff.
+/// hours away), so Tukey's upper fence, Q3 + 1.5 IQR, is taken on
+/// `ln(gap)`. One fence, no fixed cutoff. Comparing in log space keeps
+/// evenly spaced sessions from splitting on rounding.
 pub fn idle_log_threshold(gaps: &[Ms]) -> Option<f64> {
     if gaps.len() < 4 {
         return None;
@@ -221,12 +219,7 @@ pub fn idle_log_threshold(gaps: &[Ms]) -> Option<f64> {
         .map(|gap| (*gap).max(1) as f64)
         .map(f64::ln)
         .collect();
-    let mut fence = tukey_fence(&logs);
-    let long: Vec<f64> = logs.iter().copied().filter(|log| *log > fence).collect();
-    if long.len() >= 4 {
-        fence = tukey_fence(&long);
-    }
-    Some(fence)
+    Some(tukey_fence(&logs))
 }
 
 /// Split ascending timestamps into stretches at gaps beyond the fence.
