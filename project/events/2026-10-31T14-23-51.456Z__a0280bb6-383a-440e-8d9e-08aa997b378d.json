@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "a0280bb6-383a-440e-8d9e-08aa997b378d",
+  "issue_id": "BOTSPY-fd163e15-2764-4674-801a-37bc98cf1d05",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T14:23:51.456Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "CLI wiring: flags and output path",
+    "description": "`cargo run --example timeline -- [--since T] [--until T] [--project P] [--source S]... [--titles] [--out PATH] [data-root]`; default output `timeline.html` in the current directory; print the path. Add a `--demo` flag that generates a parallel-sessions synthetic corpus in a private temp root (removed afterwards) so anyone can see it work. Done when the filter scenarios pass.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+    "labels": [],
+    "agent": {
+      "platform": "claude_code",
+      "model": "Opus 5.5",
+      "name": "LeftBlock owner session"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "44df44ec-f103-4c03-819f-df0f6bd4684b",
+  "issue_id": "BOTSPY-644940d5-7153-42a5-b0c5-52c09671cffa",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T14:23:51.484Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Docs: README, sensitive-data inventory, screenshot",
+    "description": "Add the example to the README examples list with a screenshot rendered from `--demo` synthetic data only, and document in `docs/sensitive-data.md` that the HTML holds session timing, agent and project metadata (and titles with --titles). Update the data-flow diagram source if the example belongs there and re-render it.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+    "labels": [],
+    "agent": {
+      "platform": "claude_code",
+      "model": "Opus 5.5",
+      "name": "LeftBlock owner session"
+    }
+  }
+}

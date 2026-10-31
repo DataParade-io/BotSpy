@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "b73d0972-5798-40bc-8e8d-644944f6e554",
+  "issue_id": "BOTSPY-90feeef1-4df2-49c5-9f8f-7cfe65497694",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T14:23:51.327Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Activity model: active stretches per session",
+    "description": "Compute each session's active stretches from message timestamps with adaptive idle detection (Tukey fence on the session's own gaps; under 4 gaps = one stretch; no timestamps = one approximate started..last-activity span). Pure functions, unit-tested. Done when the swimlane and concurrency scenarios that depend on it pass.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+    "labels": [],
+    "agent": {
+      "platform": "claude_code",
+      "model": "Opus 5.5",
+      "name": "LeftBlock owner session"
+    }
+  }
+}

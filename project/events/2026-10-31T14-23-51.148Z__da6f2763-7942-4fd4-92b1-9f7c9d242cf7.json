@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "da6f2763-7942-4fd4-92b1-9f7c9d242cf7",
+  "issue_id": "BOTSPY-85c13bc8-cdf6-433e-94f2-e0e391130845",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T14:23:51.148Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Swimlanes with active stretches and idle breaks",
+    "description": "As a user, I want one lane per session, grouped by project, whose bars show when the session was actually active, so that I can see overlaps and idle time at a glance.\n\nIdle detection has no fixed cutoff: a gap between consecutive messages is idle when it is an outlier among that session's own gaps (Tukey upper fence, Q3 + 1.5 IQR). Sessions with too few gaps to estimate (under 4) are drawn as one stretch. Sessions with no message timestamps are drawn as one started..last-activity span marked \"approximate\".\n\n```gherkin\nFeature: Session swimlanes\n  Scenario: Lanes are grouped by project and ordered by start\n    Given sessions in projects \"alpha\" and \"beta\"\n    When the timeline example renders\n    Then each project has a labelled group of lanes\n    And lanes within a group are ordered by start time\n\n  Scenario: An unusually long gap splits a session into stretches\n    Given a session whose messages are a few minutes apart except one gap far longer than the rest\n    When the timeline example renders\n    Then that session's lane shows two active stretches\n\n  Scenario: A session without message timestamps is approximate\n    Given a session with a start and last-activity time but no message timestamps\n    When the timeline example renders\n    Then its lane shows one span marked approximate\n```",
+    "issue_type": "story",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+    "labels": [],
+    "agent": {
+      "platform": "claude_code",
+      "model": "Opus 5.5",
+      "name": "LeftBlock owner session"
+    }
+  }
+}

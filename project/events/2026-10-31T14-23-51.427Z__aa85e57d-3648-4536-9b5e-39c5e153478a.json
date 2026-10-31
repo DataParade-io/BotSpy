@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "aa85e57d-3648-4536-9b5e-39c5e153478a",
+  "issue_id": "BOTSPY-d7b47dde-62fc-4389-8bdb-8ee13b5f7cc0",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T14:23:51.427Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Self-contained HTML renderer",
+    "description": "Render one HTML file with inline SVG and CSS: concurrency chart on top, project-grouped swimlanes below, agent patterns plus legend, light/dark via prefers-color-scheme, hover titles with times and counts. No external resources. Titles only with --titles; never message text. Done when the privacy and legibility scenarios pass.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+    "labels": [],
+    "agent": {
+      "platform": "claude_code",
+      "model": "Opus 5.5",
+      "name": "LeftBlock owner session"
+    }
+  }
+}

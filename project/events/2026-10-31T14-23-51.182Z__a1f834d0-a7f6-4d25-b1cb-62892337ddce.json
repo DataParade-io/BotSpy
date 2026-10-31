@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "a1f834d0-a7f6-4d25-b1cb-62892337ddce",
+  "issue_id": "BOTSPY-97cf37ee-8456-4474-bad6-6b29a204cba4",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T14:23:51.182Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Spawned sub-agents nest under their parent",
+    "description": "As a user, I want sub-agents and forked sessions shown under the session that spawned them, so that I can see one piece of work fanning out.\n\n```gherkin\nFeature: Spawn lineage\n  Scenario: A spawned session nests under its parent\n    Given session \"p\" spawned session \"c\"\n    When the timeline example renders\n    Then lane \"c\" is drawn indented under lane \"p\"\n    And a connector marks the moment \"c\" was spawned\n\n  Scenario: A child whose parent is outside the window still shows\n    Given session \"c\" was spawned by a session outside the selected time window\n    When the timeline example renders\n    Then lane \"c\" is shown at top level with a note naming its missing parent\n```",
+    "issue_type": "story",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+    "labels": [],
+    "agent": {
+      "platform": "claude_code",
+      "model": "Opus 5.5",
+      "name": "LeftBlock owner session"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "BOTSPY-d12b149e-fb7a-4282-9c0e-7d527e4b6372",
+  "title": "Concurrency over time",
+  "description": "As a user of several coding agents, I want to see how many sessions were active at once over time, so that I can see how parallel my work really was.\n\n```gherkin\nFeature: Concurrency over time\n  Scenario: Overlapping active stretches add up\n    Given session \"a\" active from 09:00 to 10:00\n    And session \"b\" active from 09:30 to 11:00\n    When the timeline example renders\n    Then the concurrency curve is 1 from 09:00, 2 from 09:30, 1 from 10:00 and 0 from 11:00\n    And the page states a peak of 2 concurrent sessions at 09:30\n\n  Scenario: Idle gaps do not count as active\n    Given session \"a\" has an idle break from 09:20 to 09:50\n    When the timeline example renders\n    Then session \"a\" does not count toward concurrency between 09:20 and 09:50\n```",
+  "type": "story",
+  "status": "open",
+  "priority": 2,
+  "assignee": null,
+  "creator": null,
+  "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+  "labels": [],
+  "dependencies": [],
+  "comments": [],
+  "created_at": "2026-10-31T14:23:51.111150Z",
+  "updated_at": "2026-10-31T14:23:51.111184Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "claude_code",
+    "model": "Opus 5.5",
+    "name": "LeftBlock owner session"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

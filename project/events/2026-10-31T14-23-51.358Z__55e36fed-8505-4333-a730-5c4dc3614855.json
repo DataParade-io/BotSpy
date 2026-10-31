@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "55e36fed-8505-4333-a730-5c4dc3614855",
+  "issue_id": "BOTSPY-0c25e733-c11f-4cba-aab9-46988d496665",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T14:23:51.358Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Concurrency series and peak",
+    "description": "Sweep-line over all active stretches to produce the concurrent-sessions step series and its peak (value and time). Respect filters. Done when the concurrency scenarios pass.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+    "labels": [],
+    "agent": {
+      "platform": "claude_code",
+      "model": "Opus 5.5",
+      "name": "LeftBlock owner session"
+    }
+  }
+}

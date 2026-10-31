@@ -1,0 +1,25 @@
+{
+  "id": "BOTSPY-ad7d0ac2-7810-47b2-bd50-71d0af22c37f",
+  "title": "Privacy defaults for the timeline page",
+  "description": "As a user, I want the timeline page to leave out session titles and all message text unless I ask, so that I can share a picture of my working patterns without leaking what I worked on.\n\n```gherkin\nFeature: Timeline privacy\n  Scenario: Titles are left out by default\n    Given a session titled \"Fix the billing export\"\n    When the timeline example renders without options\n    Then the page does not contain \"Fix the billing export\"\n    And lanes are labelled by agent and a short session id\n\n  Scenario: Titles can be opted in\n    Given a session titled \"Fix the billing export\"\n    When the timeline example renders with \"--titles\"\n    Then the page contains \"Fix the billing export\"\n\n  Scenario: The page is self-contained\n    When the timeline example renders\n    Then the page loads no external scripts, styles, fonts or images\n    And message text never appears on the page\n```",
+  "type": "story",
+  "status": "open",
+  "priority": 2,
+  "assignee": null,
+  "creator": null,
+  "parent": "BOTSPY-8739de58-ad6a-42a4-ac5f-fe75c53b3998",
+  "labels": [],
+  "dependencies": [],
+  "comments": [],
+  "created_at": "2026-10-31T14:23:51.214769Z",
+  "updated_at": "2026-10-31T14:23:51.214795Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "claude_code",
+    "model": "Opus 5.5",
+    "name": "LeftBlock owner session"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}
