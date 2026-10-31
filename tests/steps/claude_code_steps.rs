@@ -96,25 +96,6 @@ fn root_with_transcripts(world: &mut BotSpyWorld, a: String, b: String) {
     world.cc_source = Some(ClaudeCodeSource::new(world.cc_root.clone().expect("root")));
 }
 
-#[given(regex = r#"^a Claude Code session transcript "([^"]+)" with sidechain "([^"]+)"$"#)]
-fn transcript_with_sidechain(world: &mut BotSpyWorld, name: String, sidechain: String) {
-    let dir = project_dir(&new_root(world));
-    write_transcript(
-        &dir.join(&name),
-        &[user_record("uuid-1", "", &stamp(0), "mainline work")],
-        None,
-    );
-    let sidechain_path = dir.join(&sidechain);
-    std::fs::create_dir_all(sidechain_path.parent().expect("sidechain parent"))
-        .expect("create subagents dir");
-    std::fs::write(
-        &sidechain_path,
-        user_record("uuid-9", "", &stamp(1), "sidechain work"),
-    )
-    .expect("write sidechain transcript");
-    finish_setup(world, name);
-}
-
 #[given(regex = r#"^a Claude Code transcript "([^"]+)" with ([0-9]+) records$"#)]
 fn transcript_with_records(world: &mut BotSpyWorld, name: String, count: usize) {
     let dir = project_dir(&new_root(world));
@@ -279,12 +260,186 @@ fn partial_lines_held_back(world: &mut BotSpyWorld, count: usize) {
     );
 }
 
-#[then(regex = r#"^the doctor report counts ([0-9]+) skipped subagents?$"#)]
-fn doctor_counts_subagents(world: &mut BotSpyWorld, count: usize) {
-    let source = world.cc_source.as_ref().expect("no Claude Code source");
-    let report = source.doctor();
-    assert_eq!(
-        report.skipped_subagents, count,
-        "the doctor report counted the wrong subagents: {report:?}"
+// ---- sub-agents ----------------------------------------------------------
+
+/// Write `<project>/<parent>/subagents/agent-<agent>.jsonl` (two sidechain
+/// records: the parent's prompt, then the sub-agent's reply) and, when
+/// given, its `.meta.json` with the agent type and spawn depth.
+pub fn write_subagent(project: &Path, parent: &str, agent: &str, meta: Option<(&str, u64)>) {
+    let dir = project.join(parent).join("subagents");
+    std::fs::create_dir_all(&dir).expect("create subagents dir");
+    let prompt = format!(
+        r#"{{"isSidechain":true,"agentId":"{agent}","sessionId":"{parent}","type":"user","uuid":"{agent}-1","parentUuid":"","timestamp":"2026-10-01T09:01:00Z","message":{{"role":"user","content":"the prompt the parent sent"}}}}"#
     );
+    let reply = format!(
+        r#"{{"isSidechain":true,"agentId":"{agent}","sessionId":"{parent}","type":"assistant","uuid":"{agent}-2","parentUuid":"{agent}-1","timestamp":"2026-10-01T09:02:00Z","message":{{"role":"assistant","content":[{{"type":"text","text":"finished"}}]}}}}"#
+    );
+    std::fs::write(
+        dir.join(format!("agent-{agent}.jsonl")),
+        format!("{prompt}\n{reply}\n"),
+    )
+    .expect("write sub-agent transcript");
+    if let Some((kind, depth)) = meta {
+        std::fs::write(
+            dir.join(format!("agent-{agent}.meta.json")),
+            format!(
+                r#"{{"agentType":"{kind}","description":"look around","toolUseId":"toolu_1","spawnDepth":{depth},"model":"model-1"}}"#
+            ),
+        )
+        .expect("write sub-agent meta");
+    }
+}
+
+/// The parent transcript `<name>` for sub-agent scenarios: one human
+/// message then one reply, bracketing the sub-agent's work.
+pub fn write_parent_transcript(project: &Path, name: &str) {
+    let reply = r#"{"type":"assistant","uuid":"p-2","parentUuid":"p-1","timestamp":"2026-10-01T09:10:00Z","message":{"role":"assistant","content":[{"type":"text","text":"all done"}]}}"#;
+    write_transcript(
+        &project.join(name),
+        &[
+            user_record("p-1", "", "2026-10-01T09:00:00Z", "start"),
+            reply.to_string(),
+        ],
+        None,
+    );
+}
+
+#[given(
+    regex = r#"^a Claude Code session transcript "([^"]+)" with sub-agent "([^"]+)" of type "([^"]+)" at depth ([0-9]+)$"#
+)]
+fn transcript_with_subagent(
+    world: &mut BotSpyWorld,
+    name: String,
+    agent: String,
+    kind: String,
+    depth: u64,
+) {
+    let dir = project_dir(&new_root(world));
+    write_transcript(
+        &dir.join(&name),
+        &[user_record("uuid-1", "", &stamp(0), "mainline work")],
+        None,
+    );
+    let parent = name.trim_end_matches(".jsonl");
+    write_subagent(&dir, parent, &agent_id(&agent), Some((&kind, depth)));
+    finish_setup(world, name);
+}
+
+#[given(
+    regex = r#"^a Claude Code session transcript "([^"]+)" with sub-agent "([^"]+)" and no meta file$"#
+)]
+fn transcript_with_subagent_no_meta(world: &mut BotSpyWorld, name: String, agent: String) {
+    let dir = project_dir(&new_root(world));
+    write_transcript(
+        &dir.join(&name),
+        &[user_record("uuid-1", "", &stamp(0), "mainline work")],
+        None,
+    );
+    let parent = name.trim_end_matches(".jsonl");
+    write_subagent(&dir, parent, &agent_id(&agent), None);
+    finish_setup(world, name);
+}
+
+/// The scenario names a sub-agent by its file stem, `agent-<id>`.
+fn agent_id(stem: &str) -> String {
+    stem.trim_start_matches("agent-").to_string()
+}
+
+#[given(
+    regex = r#"^a Claude Code transcript "([^"]+)" holding a user record and a stray sidechain record$"#
+)]
+fn transcript_with_stray_sidechain(world: &mut BotSpyWorld, name: String) {
+    let dir = project_dir(&new_root(world));
+    let stray = user_record("uuid-2", "", &stamp(1), "side work").replacen(
+        "{\"type\"",
+        "{\"isSidechain\":true,\"type\"",
+        1,
+    );
+    write_transcript(
+        &dir.join(&name),
+        &[user_record("uuid-1", "", &stamp(0), "mainline work"), stray],
+        None,
+    );
+    finish_setup(world, name);
+}
+
+#[when(regex = r#"^the Claude Code importer extracts the sub-agent session "([^"]+)"$"#)]
+fn extract_subagent(world: &mut BotSpyWorld, id: String) {
+    let source = world.cc_source.as_ref().expect("no Claude Code source");
+    world.cc_extraction = Some(source.extract(&id).expect("no such sub-agent session"));
+}
+
+fn extracted(world: &BotSpyWorld) -> &botspy::Session {
+    &world
+        .cc_extraction
+        .as_ref()
+        .expect("no Claude Code extraction")
+        .session
+}
+
+#[then(regex = r#"^discovery lists the session "([^"]+)" in project "([^"]+)"$"#)]
+fn discovery_lists_session(world: &mut BotSpyWorld, id: String, project: String) {
+    let found = world
+        .discovered
+        .iter()
+        .find(|summary| summary.id == id)
+        .unwrap_or_else(|| panic!("discovery did not list {id}"));
+    assert_eq!(found.project_id, project);
+}
+
+#[then(regex = r#"^the doctor report counts ([0-9]+) sub-agents?$"#)]
+fn doctor_counts_subagents(world: &mut BotSpyWorld, count: usize) {
+    let report = world.cc_source.as_ref().expect("source").doctor();
+    assert_eq!(report.subagents, count, "{report:?}");
+}
+
+#[then(regex = r#"^the doctor report counts ([0-9]+) transcripts?$"#)]
+fn doctor_counts_transcripts(world: &mut BotSpyWorld, count: usize) {
+    let report = world.cc_source.as_ref().expect("source").doctor();
+    assert_eq!(report.transcripts, count, "{report:?}");
+}
+
+#[then(regex = r#"^the session is spawned by "([^"]+)"$"#)]
+fn session_spawned_by(world: &mut BotSpyWorld, parent: String) {
+    assert_eq!(extracted(world).parent_id.as_deref(), Some(parent.as_str()));
+}
+
+#[then(regex = r#"^the session is a "([^"]+)" sub-agent at depth ([0-9]+)$"#)]
+fn session_is_subagent(world: &mut BotSpyWorld, kind: String, depth: u64) {
+    let info = extracted(world).subagent.clone().expect("a sub-agent");
+    assert_eq!(info.kind, kind);
+    assert_eq!(info.nesting_depth, Some(depth));
+}
+
+#[then(regex = r#"^the session is a "([^"]+)" sub-agent of unknown depth$"#)]
+fn session_is_subagent_unknown_depth(world: &mut BotSpyWorld, kind: String) {
+    let info = extracted(world).subagent.clone().expect("a sub-agent");
+    assert_eq!(info.kind, kind);
+    assert_eq!(info.nesting_depth, None);
+}
+
+#[then(regex = r#"^the session is titled "([^"]+)"$"#)]
+fn session_titled(world: &mut BotSpyWorld, title: String) {
+    assert_eq!(
+        extracted(world).metadata.title.as_deref(),
+        Some(title.as_str())
+    );
+}
+
+#[then(regex = r#"^the session holds ([0-9]+) messages?$"#)]
+fn session_holds_messages(world: &mut BotSpyWorld, count: usize) {
+    assert_eq!(extracted(world).messages.len(), count);
+}
+
+#[then(regex = r#"^the session has no parent and is not a sub-agent$"#)]
+fn session_is_a_root(world: &mut BotSpyWorld) {
+    let session = extracted(world);
+    assert_eq!(session.parent_id, None);
+    assert_eq!(session.subagent, None);
+}
+
+#[then(regex = r#"^([0-9]+) records? (?:is|are) skipped as unknown$"#)]
+fn records_skipped_unknown(world: &mut BotSpyWorld, count: u64) {
+    let extraction = world.cc_extraction.as_ref().expect("extraction");
+    assert_eq!(extraction.skipped.unknown, count);
 }

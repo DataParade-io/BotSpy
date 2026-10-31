@@ -241,6 +241,27 @@ fn session_spawned(world: &mut BotSpyWorld, parent: String, child: String) {
     add(world, child);
 }
 
+#[given(regex = r#"^a Claude Code session "([^"]+)" that spawned a sub-agent "([^"]+)"$"#)]
+fn claude_session_with_subagent(world: &mut BotSpyWorld, parent: String, agent: String) {
+    use crate::steps::claude_code_steps::{write_parent_transcript, write_subagent};
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let project = scratch.path().join("proj-a");
+    std::fs::create_dir_all(&project).expect("project dir");
+    write_parent_transcript(&project, &format!("{parent}.jsonl"));
+    write_subagent(
+        &project,
+        &parent,
+        agent.trim_start_matches("agent-"),
+        Some(("Explore", 1)),
+    );
+    let source = botspy::adapters::claude_code::ClaudeCodeSource::new(scratch.path());
+    for summary in source.discover().0 {
+        let extraction = source.extract(&summary.id).expect("extraction");
+        add(world, extraction.session);
+    }
+    world.timeline.scratch = Some(scratch);
+}
+
 #[given(regex = r#"^session "([^"]+)" was spawned by a session outside the selected time window$"#)]
 fn child_of_outside_parent(world: &mut BotSpyWorld, child: String) {
     add(
@@ -529,6 +550,24 @@ fn lane_nested(world: &mut BotSpyWorld, child: String, parent: String) {
         attr(&views[child_at - 1].tag, "data-depth").as_deref(),
         Some("0")
     );
+}
+
+#[then(regex = r#"^the lane "([^"]+)" shows one active stretch$"#)]
+fn lane_shows_one_stretch(world: &mut BotSpyWorld, id: String) {
+    let views = lanes(html(world));
+    let view = views.iter().find(|view| view.id() == id).expect("lane");
+    assert_eq!(view.stretches().len(), 1);
+}
+
+#[then(regex = r#"^a connector joins "([^"]+)" to "([^"]+)" when the sub-agent began$"#)]
+fn connector_joins(world: &mut BotSpyWorld, parent: String, child: String) {
+    let spawns = tags(html(world), "<path class=\"spawn\"");
+    let tag = spawns
+        .iter()
+        .find(|tag| attr(tag, "data-child").as_deref() == Some(child.as_str()))
+        .expect("a spawn connector");
+    assert_eq!(attr(tag, "data-parent").as_deref(), Some(parent.as_str()));
+    assert_eq!(attr(tag, "data-at"), Some(at(DAY, "09:01")));
 }
 
 #[then(regex = r#"^a connector marks the moment "([^"]+)" was spawned$"#)]

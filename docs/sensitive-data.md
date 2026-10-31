@@ -33,7 +33,7 @@ root. Model cache resolution is different, as described below.
 
 | Source | Exact paths | Content |
 | --- | --- | --- |
-| Claude Code | `~/.claude/projects/<encoded-cwd>/<session>.jsonl`; `~/.claude/projects/<encoded-cwd>/subagents/agent-*.jsonl` (skipped, counted) | Prompts, replies, thinking, tool calls and results, costs, titles |
+| Claude Code | `~/.claude/projects/<encoded-cwd>/<session>.jsonl`; `~/.claude/projects/<encoded-cwd>/<session>/subagents/agent-*.jsonl` (imported as sessions spawned by the parent) | Prompts, replies, thinking, tool calls and results, costs, titles |
 | Cursor | `~/.cursor/state.vscdb` (plus `-wal`, `-shm`); `~/.cursor/projects/<encoded-cwd>/agent-transcripts/*.jsonl` | Composer conversations, bubbles, tool blobs |
 | Codex | `~/.codex/state_5.sqlite`; `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | Threads, rollouts, messages, reasoning, tool calls, token usage |
 | Grok Bot | `~/.grok/sand-client-persistence/*.json` — entry logs, plus the reserved `roster.json` and `cloud-agents.json` | Messages, voice calls (raw passthrough), agent names, agent status |

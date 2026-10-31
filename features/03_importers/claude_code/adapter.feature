@@ -1,22 +1,55 @@
 Feature: Claude Code importer
   The Claude Code importer watches append-only JSONL transcripts under
   `~/.claude/projects/<encoded-cwd>/` — one file per session — and emits
-  normalized records as they appear. Sidechain files under `subagents/`
-  are skipped and counted. The source tree is only ever read.
+  normalized records as they appear. Sub-agent transcripts under
+  `<session-id>/subagents/agent-<id>.jsonl` are imported as sessions of
+  their own, spawned by the parent session. The source tree is only ever
+  read.
   Evidence: session files carry `uuid`/`parentUuid`, `cost-state`,
   `pr-link`, `custom-title` records; files are appended live while
-  sessions run.
+  sessions run. A sub-agent's `agent-<id>.meta.json` names its
+  `agentType`, `description`, `toolUseId`, `spawnDepth` and `model`; its
+  records are flagged `isSidechain` and carry the parent's `sessionId`.
 
   Scenario: Discovery finds one session per transcript
     Given a Claude Code source root with project transcripts "a.jsonl" and "b.jsonl"
     When the Claude Code importer detects changes
     Then discovery yields 2 sessions
 
-  Scenario: Sub-agent sidechains are skipped and counted
-    Given a Claude Code session transcript "a.jsonl" with sidechain "subagents/agent-1.jsonl"
+  Scenario: A sub-agent is discovered as a session spawned by its parent
+    Given a Claude Code session transcript "a.jsonl" with sub-agent "agent-1" of type "Explore" at depth 1
     When the Claude Code importer detects changes
-    Then discovery yields 1 session
-    And the doctor report counts 1 skipped subagent
+    Then discovery yields 2 sessions
+    And discovery lists the session "a--agent-1" in project "proj-a"
+    And the doctor report counts 1 sub-agent
+    And the doctor report counts 1 transcript
+
+  Scenario: A sub-agent's kind and depth come from its meta file
+    Given a Claude Code session transcript "a.jsonl" with sub-agent "agent-1" of type "Explore" at depth 2
+    When the Claude Code importer extracts the sub-agent session "a--agent-1"
+    Then the session is spawned by "a"
+    And the session is a "Explore" sub-agent at depth 2
+    And the session is titled "look around"
+    And the session holds 2 messages
+
+  Scenario: A sub-agent without a meta file is still imported
+    Given a Claude Code session transcript "a.jsonl" with sub-agent "agent-1" and no meta file
+    When the Claude Code importer extracts the sub-agent session "a--agent-1"
+    Then the session is spawned by "a"
+    And the session is a "subagent" sub-agent of unknown depth
+    And the session holds 2 messages
+
+  Scenario: Sidechain records are not counted in the parent session
+    Given a Claude Code session transcript "a.jsonl" with sub-agent "agent-1" of type "Explore" at depth 1
+    When the Claude Code importer extracts the transcript
+    Then extraction yields 1 message
+    And the session has no parent and is not a sub-agent
+
+  Scenario: A stray sidechain record in a main transcript is skipped
+    Given a Claude Code transcript "a.jsonl" holding a user record and a stray sidechain record
+    When the Claude Code importer extracts the transcript
+    Then extraction yields 1 message
+    And 1 record is skipped as unknown
 
   Scenario: Appended records appear on the next read
     Given a Claude Code transcript "a.jsonl" with 3 records
