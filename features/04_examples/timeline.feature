@@ -70,6 +70,13 @@ Feature: Parallel sessions timeline
     Then lane "c" is drawn indented under lane "p"
     And a connector marks the moment "c" was spawned
 
+  Scenario: A Claude Code sub-agent nests under the session that spawned it
+    Given a Claude Code session "p" that spawned a sub-agent "agent-1"
+    When the timeline example renders
+    Then lane "p--agent-1" is drawn indented under lane "p"
+    And a connector joins "p" to "p--agent-1" when the sub-agent began
+    And the lane "p--agent-1" shows one active stretch
+
   Scenario: A child whose parent is outside the window still shows
     Given session "c" was spawned by a session outside the selected time window
     When the timeline example renders
