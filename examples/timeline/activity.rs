@@ -2,7 +2,7 @@
 //! sessions were active at once. Pure functions over timestamps in
 //! milliseconds since the Unix epoch, with no I/O.
 
-use botspy::Session;
+use botspy::{KnownPart, Message, Part, Role, Session};
 
 /// Milliseconds since the Unix epoch (UTC).
 pub type Ms = i64;
@@ -188,64 +188,73 @@ impl Activity {
     }
 }
 
-/// Linear-interpolated quantile of an ascending, non-empty slice.
-fn quantile(sorted: &[Ms], q: f64) -> f64 {
-    let position = q * (sorted.len() - 1) as f64;
-    let low = position.floor() as usize;
-    let high = position.ceil() as usize;
-    sorted[low] as f64 + (sorted[high] - sorted[low]) as f64 * (position - low as f64)
+/// Whether a message is the human speaking: a user-role message that is
+/// not just tool results handed back to the agent.
+fn is_human(message: &Message) -> bool {
+    message.role == Role::User
+        && !(!message.parts.is_empty()
+            && message
+                .parts
+                .iter()
+                .all(|part| matches!(part, Part::Known(KnownPart::ToolResult { .. }))))
 }
 
-/// The idle threshold of a session's own gaps: Tukey's upper fence,
-/// Q3 + 1.5 IQR. `None` when there are too few gaps (under 4) to estimate.
-pub fn idle_fence(gaps: &[Ms]) -> Option<f64> {
-    if gaps.len() < 4 {
-        return None;
-    }
-    let mut sorted = gaps.to_vec();
-    sorted.sort_unstable();
-    let (q1, q3) = (quantile(&sorted, 0.25), quantile(&sorted, 0.75));
-    Some(q3 + 1.5 * (q3 - q1))
-}
-
-/// Split ascending timestamps into stretches at gaps beyond the fence.
-pub fn stretches_of(times: &[Ms]) -> Vec<Stretch> {
-    let Some((&first, rest)) = times.split_first() else {
-        return Vec::new();
-    };
-    let gaps: Vec<Ms> = times.windows(2).map(|pair| pair[1] - pair[0]).collect();
-    let fence = idle_fence(&gaps);
-    let mut stretches = Vec::new();
-    let mut start = first;
-    let mut previous = first;
-    for &time in rest {
-        if fence.is_some_and(|fence| (time - previous) as f64 > fence) {
-            stretches.push(Stretch {
-                start,
-                end: previous,
-            });
-            start = time;
+/// Split a session's timestamped messages (`(time, is_human)`, any order)
+/// into turns. A turn is the agent working: it runs from a human message to
+/// the last non-human message before the next human message. Consecutive
+/// human messages with nothing between keep the turn's first start. A
+/// session that begins with agent messages (a sub-agent) starts its first
+/// turn at its first message. A trailing human message with no reply, and
+/// any turn that would last no time, are dropped: there is no zero-length
+/// stretch. No threshold is involved.
+pub fn turns_of(messages: &[(Ms, bool)]) -> Vec<Stretch> {
+    let mut ordered = messages.to_vec();
+    ordered.sort_by_key(|(time, _)| *time);
+    let mut turns = Vec::new();
+    // (start, last non-human message so far)
+    let mut open: Option<(Ms, Option<Ms>)> = None;
+    let close = |open: Option<(Ms, Option<Ms>)>, turns: &mut Vec<Stretch>| {
+        if let Some((start, Some(end))) = open {
+            if end > start {
+                turns.push(Stretch { start, end });
+            }
         }
-        previous = time;
+    };
+    for (time, human) in ordered {
+        open = match (open, human) {
+            (None, true) => Some((time, None)),
+            (None, false) => Some((time, Some(time))),
+            (Some((start, None)), true) => Some((start, None)),
+            (Some((start, _)), false) => Some((start, Some(time))),
+            (Some(done @ (_, Some(_))), true) => {
+                close(Some(done), &mut turns);
+                Some((time, None))
+            }
+        };
     }
-    stretches.push(Stretch {
-        start,
-        end: previous,
-    });
-    stretches
+    close(open, &mut turns);
+    turns
 }
 
 /// The activity of one session, or `None` when it has no usable time at all.
 pub fn activity_of(session: &Session) -> Option<Activity> {
-    let mut times: Vec<Ms> = session
+    let stamped: Vec<(Ms, bool)> = session
         .messages
         .iter()
-        .filter_map(|message| message.timestamp.as_deref().and_then(parse_time))
+        .filter_map(|message| {
+            let time = message.timestamp.as_deref().and_then(parse_time)?;
+            Some((time, is_human(message)))
+        })
         .collect();
-    times.sort_unstable();
-    if !times.is_empty() {
+    if !stamped.is_empty() {
+        let mut times: Vec<Ms> = stamped.iter().map(|(time, _)| *time).collect();
+        times.sort_unstable();
+        let stretches = turns_of(&stamped);
+        if stretches.is_empty() {
+            return None;
+        }
         return Some(Activity {
-            stretches: stretches_of(&times),
+            stretches,
             times,
             approximate: false,
             message_total: session.messages.len(),
@@ -257,7 +266,7 @@ pub fn activity_of(session: &Session) -> Option<Activity> {
         .unwrap_or(started)
         .max(started);
     Some(Activity {
-        times,
+        times: Vec::new(),
         stretches: vec![Stretch {
             start: started,
             end: last,

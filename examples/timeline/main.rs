@@ -11,10 +11,10 @@
 //!
 //! # What the page shows
 //!
-//! - **Top:** the concurrency step-curve (sessions active at once over
+//! - **Top:** the concurrency step-curve (agents working at once over
 //!   time) and its peak.
 //! - **Below:** one swimlane per session, grouped by project and ordered by
-//!   start. Bars are active stretches; dotted lines are idle breaks.
+//!   start. Bars are turns (the agent working); dotted lines are waiting for you.
 //!   Sub-agents and forks nest under the session that spawned them, joined
 //!   by a connector at the moment of the spawn. A child whose parent is not
 //!   in the selection sits at top level with a note.
@@ -22,12 +22,18 @@
 //!   colour. The page follows `prefers-color-scheme`, and hovering a bar
 //!   shows times and message counts.
 //!
-//! # Idle detection
+//! # Turns and waiting
 //!
-//! There is no fixed cutoff. A gap between consecutive messages is idle
-//! when it is an outlier among that session's own gaps: above Tukey's upper
-//! fence, Q3 + 1.5 IQR. A session with fewer than 4 gaps is one stretch,
-//! and a session with no message timestamps is one started..last-activity
+//! Activity is defined by what the agent was doing, with no thresholds. A
+//! bar is a **turn**: the agent working, from a human message to the last
+//! non-human message (assistant, tool, system, or tool results) before the
+//! next human message. The time from there to the next human message is
+//! **waiting for you**, drawn as a dotted line and not counted as working.
+//! Consecutive human messages keep the turn's first start; a turn never has
+//! zero length, so a trailing human message with no reply is dropped. A
+//! session that starts with agent messages (a sub-agent) starts its first
+//! turn at its first message. Messages without timestamps are skipped, and
+//! a session with no message timestamps at all is one started..last-activity
 //! span marked "approximate".
 //!
 //! # Privacy

@@ -23,8 +23,8 @@
 //!   redacted text.
 //!
 //! - **Parallel sessions timeline** — one self-contained HTML page: how
-//!   many sessions ran at once, project-grouped swimlanes with active
-//!   stretches and idle breaks, and sub-agents nested under their parent.
+//!   many agents were working at once, project-grouped swimlanes with turns
+//!   and the time spent waiting for you, and sub-agents nested under their parent.
 //!
 //! ## Status: specified
 //!
