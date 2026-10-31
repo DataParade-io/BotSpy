@@ -146,6 +146,28 @@ fn session_with_real_shaped_gaps(world: &mut BotSpyWorld) {
     add(world, session);
 }
 
+#[given(regex = r#"^a session whose records mostly share timestamps, with one long gap$"#)]
+fn session_with_same_instant_records(world: &mut BotSpyWorld) {
+    // Triples of records at one instant, a few seconds apart, then 3 hours.
+    let mut minutes_in_seconds: Vec<i64> = Vec::new();
+    let mut now = 0_i64;
+    for i in 0..40_i64 {
+        if i == 20 {
+            now += 3 * 3600;
+        } else {
+            now += 4 + (i * 5) % 9;
+        }
+        minutes_in_seconds.extend([now, now, now]);
+    }
+    let start = parse_time(&at(DAY, "09:00")).expect("start");
+    let mut session = session_at("same-instant", "alpha", DAY, &[0, 1]);
+    session.messages = minutes_in_seconds
+        .iter()
+        .map(|seconds| message(Some(format_iso(start + seconds * 1000))))
+        .collect();
+    add(world, session);
+}
+
 const HOME_USER: &str = "synthuser";
 
 #[given(regex = r#"^a Claude Code session with an encoded project id and a working directory$"#)]
@@ -860,4 +882,10 @@ fn label_ellipsized(world: &mut BotSpyWorld) {
 #[then(regex = r#"^the project's session count is still shown$"#)]
 fn count_shown(world: &mut BotSpyWorld) {
     assert!(html(world).contains(">1 session</text>"));
+}
+
+#[then(regex = r#"^it has exactly one idle break$"#)]
+fn exactly_one_break(world: &mut BotSpyWorld) {
+    let views = lanes(html(world));
+    assert_eq!(tags(&views[0].block, "<line class=\"idle\"").len(), 1);
 }

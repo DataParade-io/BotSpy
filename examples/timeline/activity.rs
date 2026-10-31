@@ -208,17 +208,19 @@ fn tukey_fence(values: &[f64]) -> f64 {
 ///
 /// Gaps are heavy-tailed (seconds between tool calls, minutes of thinking,
 /// hours away), so Tukey's upper fence, Q3 + 1.5 IQR, is taken on
-/// `ln(gap)`. One fence, no fixed cutoff. Comparing in log space keeps
-/// evenly spaced sessions from splitting on rounding.
+/// `ln(gap)`. One fence, no fixed cutoff. Agents often write several
+/// records with the same timestamp; a zero gap is not a pause, so zero
+/// gaps are left out of the estimate (and the count of 4) altogether.
 pub fn idle_log_threshold(gaps: &[Ms]) -> Option<f64> {
-    if gaps.len() < 4 {
-        return None;
-    }
     let logs: Vec<f64> = gaps
         .iter()
-        .map(|gap| (*gap).max(1) as f64)
+        .filter(|gap| **gap > 0)
+        .map(|gap| *gap as f64)
         .map(f64::ln)
         .collect();
+    if logs.len() < 4 {
+        return None;
+    }
     Some(tukey_fence(&logs))
 }
 
@@ -233,7 +235,7 @@ pub fn stretches_of(times: &[Ms]) -> Vec<Stretch> {
     let mut start = first;
     let mut previous = first;
     for &time in rest {
-        if fence.is_some_and(|fence| ((time - previous).max(1) as f64).ln() > fence) {
+        if time > previous && fence.is_some_and(|fence| ((time - previous) as f64).ln() > fence) {
             stretches.push(Stretch {
                 start,
                 end: previous,
