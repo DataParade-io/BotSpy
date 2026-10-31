@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "e445130d-8bb1-4dde-9966-4cb19d1b12ce",
+  "issue_id": "BOTSPY-7e2084e3-1d3d-444f-afc8-0c6c8b2779a0",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-20T12:50:26.176Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Backfill embeddings for unchanged stored content",
+    "description": "Setting up model assets or force-full refresh does not re-embed identical stored content because the content-hash short circuit wins. Specify a text-only import followed by requested embedding backfill; implement without unnecessary re-reading. Current safe setup guidance uses a fresh store.",
+    "issue_type": "bug",
+    "status": "open",
+    "priority": 2,
+    "assignee": "codex-release",
+    "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+    "labels": [],
+    "agent": {
+      "platform": "codex",
+      "model": "gpt-6",
+      "name": "botspy-release-readiness"
+    }
+  }
+}

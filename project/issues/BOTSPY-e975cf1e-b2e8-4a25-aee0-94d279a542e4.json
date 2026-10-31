@@ -1,0 +1,74 @@
+{
+  "id": "BOTSPY-e975cf1e-b2e8-4a25-aee0-94d279a542e4",
+  "title": "Make empty timestamp specification executable and fail on undefined steps",
+  "description": "Full BDD run exposed a silently skipped existing cutoff scenario: the step regex requires nonempty timestamps although the feature tests an empty timestamp. Fix the step binding, and make the runner fail on skipped/undefined non-WIP steps so CI cannot report false coverage. Preserve explicit @wip filtering. Verify every runnable scenario and report pending specs separately.",
+  "type": "chore",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": "codex-release",
+  "creator": null,
+  "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "labels": [],
+  "dependencies": [],
+  "comments": [
+    {
+      "id": "4eeb2a05-7504-49de-8bd2-f1685e48290d",
+      "author": "example-user",
+      "text": "Release review also found a hardcoded 0.3.0 version-output expectation; change it to verify the current package version so subsequent release bumps retain the tested contract. Preserve @wip filtering while failing any otherwise undefined/skipped step.",
+      "created_at": "2026-10-20T12:57:07.439775Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "gpt-6",
+        "name": "botspy-release-readiness"
+      }
+    },
+    {
+      "id": "9cd3d43c-ca0c-4f38-98c7-26b7b7178a89",
+      "author": "example-user",
+      "text": "Personal-data guard now permits the explicitly requested logo owner first name only in BOTSPY-eb7f2c and its creation event. Logo assignment stays unchanged. Other personal identifiers remain prohibited, including in that issue; a focused exception-boundary test verifies this. Incidental names in other new tracker prose were replaced with pointers to the named assignment through Kanbus commands. No license or owner change.",
+      "created_at": "2026-10-20T13:02:57.036042Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "gpt-6",
+        "name": "botspy-release-readiness"
+      }
+    },
+    {
+      "id": "e9d2da4f-865a-4d4b-ae2c-edbe19c90bb5",
+      "author": "example-user",
+      "text": "Product CI 39428517097 failed only ARM musl: new automatic-snapshot-cleanup BDD step directly executes CARGO_BIN_EXE_botspy and gets Exec format error under cross/QEMU at tests/steps/sqlite_steps.rs:186. 289 other scenarios passed; eight other CI jobs and receipt gate passed. This is a test subprocess portability defect, not a source-safety assertion failure. Fix the harness without skipping the scenario or changing production behavior; then run focused checks and new-head CI. No blind rerun or merge attempted.",
+      "created_at": "2026-10-20T14:08:34.044001Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
+    },
+    {
+      "id": "0cebda96-f36a-4f9d-ab13-009913fb1b60",
+      "author": "example-user",
+      "text": "Fixed in PR #28 follow-up 0fae3b8. Test-only helper honors the exact configured cross 0.2.5 target runner, preserves separate binary/argument paths and the real isolated subprocess/cleanup assertions, and does not hide runner failures. Four helper regressions red then green; original cleanup scenario 1/1 with 4 steps passed; scoped Clippy/fmt and privacy guard passed. Independent helper review found no blocker. No production, dependency or CI workflow change. Fresh full CI 39437721705 and receipt gate 39437721725 pending; failed prior run retained.",
+      "created_at": "2026-10-20T14:17:49.205154Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
+    }
+  ],
+  "created_at": "2026-10-20T12:55:54.534453Z",
+  "updated_at": "2026-10-20T14:17:49.205168Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "gpt-6",
+    "name": "botspy-release-readiness"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

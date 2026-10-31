@@ -17,6 +17,11 @@
 //!   text, with an optional GoEmotions transformer behind a feature
 //!   flag; everything runs on the local machine, nothing phones home.
 //!
+//! - **Privacy controls** — LeftBlock scans transcript text for secrets
+//!   and personal data; the example audits (counts and provenance, never
+//!   values) or redacts, and the other examples then score only the
+//!   redacted text.
+//!
 //! ## Status: specified
 //!
 //! The scenarios live in
@@ -27,5 +32,8 @@
     "## Behavior specification\n\n",
     "### consumers.feature\n\n```gherkin\n",
     include_str!("../../features/04_examples/consumers.feature"),
+    "\n```\n\n",
+    "### privacy.feature\n\n```gherkin\n",
+    include_str!("../../features/04_examples/privacy.feature"),
     "\n```\n"
 )]

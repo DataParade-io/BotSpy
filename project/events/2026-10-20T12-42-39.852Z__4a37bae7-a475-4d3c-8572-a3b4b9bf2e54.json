@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "4a37bae7-a475-4d3c-8572-a3b4b9bf2e54",
+  "issue_id": "BOTSPY-5a5e6014-1faa-45c8-b377-62b6a1145b63",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-20T12:42:39.852Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Package test and publish through existing crates.io workflow",
+    "description": "Build a clean distributable, install and smoke-test with synthetic sources; run required checks and land product PR to develop, then release preparation and develop-to-main promotion. No new credentials or publisher grants.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": "codex-release",
+    "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+    "labels": [],
+    "agent": {
+      "platform": "codex",
+      "model": "gpt-6",
+      "name": "botspy-release-readiness"
+    }
+  }
+}

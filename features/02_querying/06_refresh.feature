@@ -37,6 +37,42 @@ Feature: Incremental refresh
     When I iterate the sessions
     Then the iteration yields sessions "f6"
 
+  @scoped_pruning
+  Scenario: Refreshing one source prunes only that source's missing sessions
+    Given fixture sessions "selected-gone" from "claude_code" and "other-kept" from "codex"
+    And a store at "refresh-selected/store.db"
+    When I ingest the registered adapters into the store
+    And session "selected-gone" is removed from its adapter
+    And I refresh only the "claude_code" adapter
+    Then the refresh reports 0 new sessions, 0 updated, and 1 pruned
+    When I iterate the sessions
+    Then the iteration yields sessions "other-kept"
+
+  @scoped_pruning
+  Scenario: A selected-source dry run reports the same pruning without deleting anything
+    Given fixture sessions "selected-dry-gone" from "claude_code" and "other-dry-kept" from "codex"
+    And a store at "refresh-selected-dryrun/store.db"
+    When I ingest the registered adapters into the store
+    And session "selected-dry-gone" is removed from its adapter
+    And I refresh only the "claude_code" adapter without writing
+    Then the refresh reports 0 new sessions, 0 updated, and 1 pruned
+    When I iterate the store's sessions
+    Then the store iteration yields 2 sessions
+    When I refresh only the "claude_code" adapter
+    Then the refresh reports 0 new sessions, 0 updated, and 1 pruned
+    When I iterate the sessions
+    Then the iteration yields sessions "other-dry-kept"
+
+  @scoped_pruning
+  Scenario: Refreshing no adapters leaves stored history intact
+    Given fixture sessions "unselected-one" from "claude_code" and "unselected-two" from "codex"
+    And a store at "refresh-no-adapters/store.db"
+    When I ingest the registered adapters into the store
+    And I refresh with no adapters
+    Then the refresh reports 0 new sessions, 0 updated, and 0 pruned
+    When I iterate the store's sessions
+    Then the store iteration yields 2 sessions
+
   Scenario: Refresh is idempotent
     Given fixture sessions "f8" from "claude_code" and "f9" from "cursor" and "g0" from "codex"
     And a store at "refresh-idempotent/store.db"

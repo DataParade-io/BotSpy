@@ -6,7 +6,7 @@ store: {
 }
 
 snap: {
-  label: "Sensitive data: Snapshot copy\n\$TMPDIR/botspy-cursor-snaps/\n<pid>-<seq>/snapshot.db\nopened read-only\n(live store stays untouched)"
+  label: "Sensitive data: Snapshot copy\n<temp>/botspy-snapshot-<random>/snapshot.db\nprivate directory; reader owns its lifetime\nremoved when the reader closes"
   class: sensitive
 }
 
@@ -50,7 +50,7 @@ session: {
   class: tool
 }
 
-store -> snap: "SQLite online backup\n(digest-verified)"
+store -> snap: "SQLite online backup\nread-only source connection;\nsidecar coordination still applies"
 snap -> kv_source: "read-only queries"
 cli_dir -> cli_source: "reads files"
 kv_source -> keys: "key lookups"

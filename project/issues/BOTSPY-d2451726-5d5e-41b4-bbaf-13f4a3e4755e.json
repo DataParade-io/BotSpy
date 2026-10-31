@@ -1,0 +1,57 @@
+{
+  "id": "BOTSPY-d2451726-5d5e-41b4-bbaf-13f4a3e4755e",
+  "title": "Correct purpose setup CLI and library documentation",
+  "description": "Update stale library-only instruction, CLI shipped/planned reference, install/model setup instructions, privacy and deletion claims; preserve accurate scope and existing MIT license.",
+  "type": "task",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": "codex-release",
+  "creator": null,
+  "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "labels": [],
+  "dependencies": [],
+  "comments": [
+    {
+      "id": "e2ff141c-6644-47ba-b39b-27a459f5cf18",
+      "author": "example-user",
+      "text": "Accurate purpose/setup/use documentation and 10 corrected D2 diagrams (both PNG themes and SVG) are in PR #28. All 12 diagrams rendered; 24 PNG signatures/dimensions and 12 SVG documents validated; both themes of changed diagrams inspected. Logo dependency and unpublished factual launch draft remain tracked separately.",
+      "created_at": "2026-10-20T13:13:48.868648Z",
+      "comment_type": "default"
+    },
+    {
+      "id": "331fa7bb-bf64-4b74-8f87-5e9b21e8125f",
+      "author": "example-user",
+      "text": "Independent parent review accepted commit 4534af2 with no blocking defect and requested explicit residual limits. CLI/store/privacy documentation additions are prepared for the release PR: pruning is by agent type, not individual roots; missing or unreadable selected discovery can prune stored sessions; keep independent source/store backups and preview dry-run; explicit snapshot destinations must be idle and caller-controlled because validation is not a concurrency lock or hostile-parent-swap defense. No implementation expansion.",
+      "created_at": "2026-10-20T13:37:29.299809Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
+    },
+    {
+      "id": "8abc2d4f-278b-4b4f-b687-57bf52efcf36",
+      "author": "example-user",
+      "text": "Requested residual-limit documentation is committed in 0fae3b8: selected-agent rather than per-root pruning, unavailable selected sources may prune, independent backups/dry-run guidance, and idle caller-controlled snapshot destinations with no concurrency-lock guarantee. Awaiting PR #28 full CI and merge.",
+      "created_at": "2026-10-20T14:17:49.232125Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
+    }
+  ],
+  "created_at": "2026-10-20T12:42:34.298498Z",
+  "updated_at": "2026-10-20T14:17:49.232139Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "gpt-6",
+    "name": "botspy-release-readiness"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

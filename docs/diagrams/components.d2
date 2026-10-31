@@ -14,7 +14,7 @@ botspy: {
   }
 
   snapshot: {
-    label: "Snapshot module\nSQLite online backup,\ndigest_files non-mutation proof"
+    label: "Snapshot module\nSQLite online backup; private copies.\nSource read-only connection may touch sidecars.\nExplicit snapshot digests are diagnostic."
     class: tool
   }
 
@@ -68,7 +68,7 @@ store_db: {
 }
 
 models: {
-  label: "Model cache\n<home>/.botspy/models"
+  label: "Model cache\nBOTSPY_MODELS or\n\$HOME/.botspy/models"
   class: tool
 }
 
@@ -80,7 +80,7 @@ user: {
 user -> botspy.cli: "runs"
 botspy.cli -> botspy.snapshot: "snapshot verb;\nWAL-safe reads"
 botspy.snapshot -> files: "copies live SQLite files\n(read-only backup).\nSensitive data: live store pages"
-botspy.cli -> botspy.importer: "import, watch"
+botspy.cli -> botspy.importer: "import, scan"
 botspy.importer -> botspy.adapters: "drives discovery and extraction"
 botspy.adapters -> files: "reads session files.\nSensitive data: session history"
 botspy.adapters -> botspy.schema: "unified objects.\nSensitive data: session history"
@@ -89,7 +89,7 @@ botspy.store.ingest -> store_db: "writes rows\nin one transaction.\nSensitive da
 botspy.store.ingest -> botspy.store.embedder: "text parts to embed.\nSensitive data: plaintext text"
 botspy.store.embedder -> models: "loads model once\n(read-only)"
 botspy.store.embedder -> store_db: "writes embeddings"
-botspy.cli -> botspy.store.query: "sessions, show, stats"
+botspy.cli -> botspy.store.query: "stored sessions, stats"
 botspy.store.query -> store_db: "reads (WAL readers).\nSensitive data: session history"
 botspy.cli -> botspy.store.search: "search"
 botspy.store.search -> store_db: "reads FTS5 and vector indexes.\nSensitive data: plaintext text"

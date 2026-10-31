@@ -1,7 +1,7 @@
 title: Search - text, semantic, hybrid
 
 cli: {
-  label: "BotSpy CLI\nsearch <query>\n--mode text | semantic\n--source, --project, --kind, --role,\n--context N, --since, --until, --limit"
+  label: "BotSpy CLI\nsearch <query>\n--mode text | semantic | hybrid\n--db, --source (at most one),\n--project, --limit\n-o human | json | ndjson"
   class: tool
 }
 
@@ -26,7 +26,7 @@ embedder: {
 }
 
 models: {
-  label: "Model cache\n<home>/.botspy/models/\nall-MiniLM-L6-v2\n(no session data)"
+  label: "Model cache\nBOTSPY_MODELS, otherwise\n\$HOME/.botspy/models\nall-MiniLM-L6-v2 subdirectory\n--home does not move this cache\n(no session data)"
   class: tool
 }
 
@@ -36,12 +36,12 @@ vec_table: {
 }
 
 hybrid: {
-  label: "Hybrid search (store layer)\nFused score = text RRF 1 / (60 + rank)\n+ best cosine similarity.\nOrder: fused score, ties by id.\nText hits first, then semantic-only,\ndeduped by (session, message, part)."
+  label: "Hybrid search\nFused score = text RRF 1 / (60 + rank)\n+ best cosine similarity.\nOrder: fused score, ties by id.\nText hits first, then semantic-only,\ndeduped by (session, message, part)."
   class: tool
 }
 
 output: {
-  label: "Sensitive data: Search hits (NDJSON)\nsession_id, message_ordinal, role,\npart_kind, text, provenance"
+  label: "Sensitive data: Search hits (JSON / NDJSON)\nsession_id, message_ordinal,\npart_ordinal, text, score"
   class: sensitive
 }
 
@@ -49,11 +49,13 @@ cli -> text_path: "--mode text"
 text_path -> fts_table: "MATCH query"
 fts_table -> text_path: "bm25 ranks"
 cli -> sem_path: "--mode semantic"
+cli -> hybrid: "--mode hybrid"
 sem_path -> embedder: "embed the query text"
 embedder -> models: "loads model (read-only)"
 embedder -> vec_table: "query vector"
 vec_table -> sem_path: "nearest rows,\ncosine distance"
 sem_path -> hybrid: "semantic ranks"
 text_path -> hybrid: "text ranks"
-hybrid -> output: "fused, ordered hits.\nSensitive data: session history"
-cli -> output: "streams NDJSON.\nSensitive data: session history"
+text_path -> output: "text-mode hits"
+sem_path -> output: "semantic-mode hits"
+hybrid -> output: "hybrid-mode hits\nSensitive data: session history"

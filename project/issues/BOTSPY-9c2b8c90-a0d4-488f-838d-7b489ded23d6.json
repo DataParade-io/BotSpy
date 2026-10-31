@@ -1,0 +1,38 @@
+{
+  "id": "BOTSPY-9c2b8c90-a0d4-488f-838d-7b489ded23d6",
+  "title": "Refresh and retain audited release dependency lock",
+  "description": "RustSec audit of existing local dependency lock found rustls 0.23.45 affected by RUSTSEC-2026-0346 through 0349; update to patched >=0.23.46, retain Cargo.lock for reproducible CLI release checks, and re-run advisories plus full tests. Assess actual enabled-feature exposure rather than claiming all advisory paths are reachable. Transitive tokenizers uses unmaintained paste (RUSTSEC-2024-0436), with no safe upstream upgrade reported; record as maintenance follow-up, not hidden suppression.",
+  "type": "chore",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": "codex-release",
+  "creator": null,
+  "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "labels": [],
+  "dependencies": [],
+  "comments": [
+    {
+      "id": "4345e3d9-c94b-40c9-9f02-ef8ec91f8da3",
+      "author": "example-user",
+      "text": "Updated rustls lock entry from 0.23.45 to 0.23.46. Official RustSec recheck has zero vulnerability diagnostics; unmaintained paste remains an explicit warning with follow-up BOTSPY-fe4535. Cargo.lock now retained for repeatable CLI package verification. Full tests/lint/docs running.",
+      "created_at": "2026-10-20T12:51:23.873833Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "gpt-6",
+        "name": "botspy-release-readiness"
+      }
+    }
+  ],
+  "created_at": "2026-10-20T12:48:22.624781Z",
+  "updated_at": "2026-10-20T12:51:23.873855Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "gpt-6",
+    "name": "botspy-release-readiness"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

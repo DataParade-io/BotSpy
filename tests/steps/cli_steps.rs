@@ -287,6 +287,15 @@ fn exit_code(world: &mut BotSpyWorld, code: String) {
     );
 }
 
+#[then("stdout reports the current crate version")]
+fn stdout_reports_crate_version(world: &mut BotSpyWorld) {
+    assert_eq!(
+        run(world).stdout,
+        format!("botspy {}\n", env!("CARGO_PKG_VERSION")),
+        "the CLI version must match the compiled crate"
+    );
+}
+
 #[then(regex = r#"^stdout contains (".*")$"#)]
 fn stdout_contains(world: &mut BotSpyWorld, text: String) {
     let stdout = run(world).stdout.clone();
@@ -319,7 +328,7 @@ fn stdout_reports(world: &mut BotSpyWorld, expected: String) {
     );
 }
 
-#[then(regex = r#"^stdout parses as a JSON array of ([0-9]+) entries$"#)]
+#[then(regex = r#"^stdout parses as a JSON array of ([0-9]+) entr(?:y|ies)$"#)]
 fn stdout_json_array(world: &mut BotSpyWorld, count: String) {
     let value = json(world);
     let count = count.parse::<usize>().expect("numeric count");
@@ -339,6 +348,7 @@ fn stdout_json_object(world: &mut BotSpyWorld) {
 }
 
 #[then(regex = r#"^stdout parses as a JSON object with "([^"]+)" "(.*)"$"#)]
+#[then(regex = r#"^the JSON "([^"]+)" is "(.*)"$"#)]
 fn stdout_json_object_with(world: &mut BotSpyWorld, key: String, expected: String) {
     let value = json(world);
     let object = value.as_object().expect("object");

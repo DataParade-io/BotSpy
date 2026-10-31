@@ -6,7 +6,7 @@ remote: {
 }
 
 setup: {
-  label: "cargo run --example setup_models\n\nOne-time, idempotent.\nDownloads only when a file is\nmissing or its digest is wrong.\nCI runs the same step before tests."
+  label: "cargo run --example setup_models\n\nRun from a matching source checkout.\nExplicit and idempotent.\nDownloads only when a file is\nmissing or its digest is wrong.\nCI runs the same step before tests."
   class: tool
 }
 
@@ -16,17 +16,17 @@ part: {
 }
 
 cache: {
-  label: "Model cache\n\nBOTSPY_MODELS, or\n<home>/.botspy/models/all-MiniLM-L6-v2/\n\nmodel_quantized.onnx\ntokenizer.json\n\nNo session data: model files only"
+  label: "Model cache\n\nRoot: BOTSPY_MODELS, otherwise\n\$HOME/.botspy/models\nSubdirectory: all-MiniLM-L6-v2/\n--home does not move the cache.\n\nmodel_quantized.onnx\ntokenizer.json\n\nNo session data: model files only"
   class: tool
 }
 
 embedder: {
-  label: "Embedder (runtime)\n\nLoads the model from the cache.\nThe runtime never touches the network.\nA missing model is a clean error\n(ModelMissing), never a silent download."
+  label: "Embedder (runtime)\n\nLoads the model from the cache.\nThe runtime never touches the network.\nA missing model is a clean error\n(ModelMissing), never a silent download.\nCLI import then falls back to text only."
   class: tool
 }
 
 ingest_note: {
-  label: "Ingest and search\nText parts and query text\nare embedded locally, on CPU."
+  label: "Ingest and search\nText parts and query text\nare embedded locally, on CPU.\nSetup alone does not backfill vectors."
   class: tool
 }
 

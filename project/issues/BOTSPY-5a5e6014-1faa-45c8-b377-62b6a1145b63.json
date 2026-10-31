@@ -1,0 +1,86 @@
+{
+  "id": "BOTSPY-5a5e6014-1faa-45c8-b377-62b6a1145b63",
+  "title": "Package test and publish through existing crates.io workflow",
+  "description": "Build a clean distributable, install and smoke-test with synthetic sources; run required checks and land product PR to develop, then release preparation and develop-to-main promotion. No new credentials or publisher grants.",
+  "type": "task",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": "codex-release",
+  "creator": null,
+  "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "labels": [],
+  "dependencies": [
+    {
+      "target": "BOTSPY-4dc1e39e-31a6-4492-a63e-3deb61cd07ca",
+      "type": "blocked-by"
+    },
+    {
+      "target": "BOTSPY-d2451726-5d5e-41b4-bbaf-13f4a3e4755e",
+      "type": "blocked-by"
+    },
+    {
+      "target": "BOTSPY-9c2b8c90-a0d4-488f-838d-7b489ded23d6",
+      "type": "blocked-by"
+    },
+    {
+      "target": "BOTSPY-e975cf1e-b2e8-4a25-aee0-94d279a542e4",
+      "type": "blocked-by"
+    }
+  ],
+  "comments": [
+    {
+      "id": "3e2a7030-825a-4060-bb37-cc2b5ac283bc",
+      "author": "example-user",
+      "text": "Product PR https://github.com/DataParade-io/BotSpy/pull/28 at 4534af2 is open against develop. Local strict full suite: 290 scenarios, 1374 steps, zero skips; 89 unit, 14 integration/guard, 8 doc tests passed. fmt, clippy -D warnings, rustdoc -D warnings, cargo package, installed-package synthetic discovery/show/import/search/stats/dry-run/missing-session smoke passed. GitHub CI run 39428517097 and receipt gate run 39428517093 are pending; no release attempted. Existing MIT terms unchanged.",
+      "created_at": "2026-10-20T13:13:48.818545Z",
+      "comment_type": "default"
+    },
+    {
+      "id": "e9dcb6ef-84b2-4fcf-99c9-6a3e9680451f",
+      "author": "example-user",
+      "text": "Registry baseline independently downloaded with cargo info botspy@0.3.0 from crates.io: repository DataParade-io/BotSpy, MIT, documentation docs.rs/botspy/0.3.0. Public owner-list check via cargo owner --list stopped with no token found; no credentials created or requested, and no ownership mutation attempted. Publication remains scoped to the existing GitHub Actions CARGO_REGISTRY_TOKEN setup. PR #28 lint, package-size and receipt gate passed; platform tests pending.",
+      "created_at": "2026-10-20T13:17:25.230508Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
+    },
+    {
+      "id": "a3b61089-ddf2-48c0-aa08-d2aef74a7de8",
+      "author": "example-user",
+      "text": "Normal optimized installation from the tested local package passed the synthetic CLI smoke. Parent independent source-safety/scoped-pruning review gate is satisfied; full platform CI remains pending before merge. Release PR text is prepared; required review caveats will land with release preparation. No new credential or grant requested.",
+      "created_at": "2026-10-20T13:37:29.381555Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
+    },
+    {
+      "id": "54407f63-dabe-49f8-a6e4-db504652b731",
+      "author": "example-user",
+      "text": "Usage reset confirmed with successful Git/GitHub commands. Independent parent review accepted 4534af2 with no blocking source-safety/pruning defect. Publication remains pending: ARM musl CI found an actionable test-only direct-exec failure under QEMU, now assigned for correction before merge. No new package, credential, grant or ownership change attempted.",
+      "created_at": "2026-10-20T14:08:34.091773Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "GPT-6",
+        "name": "codex-release"
+      }
+    }
+  ],
+  "created_at": "2026-10-20T12:42:39.852038Z",
+  "updated_at": "2026-10-20T14:49:03.143877Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "gpt-6",
+    "name": "botspy-release-readiness"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "86ef1830-dc1e-41dc-b622-325dfd9aea01",
+  "issue_id": "BOTSPY-9c2b8c90-a0d4-488f-838d-7b489ded23d6",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-20T12:48:22.624Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Refresh and retain audited release dependency lock",
+    "description": "RustSec audit of existing local dependency lock found rustls 0.23.45 affected by RUSTSEC-2026-0346 through 0349; update to patched >=0.23.46, retain Cargo.lock for reproducible CLI release checks, and re-run advisories plus full tests. Assess actual enabled-feature exposure rather than claiming all advisory paths are reachable. Transitive tokenizers uses unmaintained paste (RUSTSEC-2024-0436), with no safe upstream upgrade reported; record as maintenance follow-up, not hidden suppression.",
+    "issue_type": "chore",
+    "status": "open",
+    "priority": 2,
+    "assignee": "codex-release",
+    "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+    "labels": [],
+    "agent": {
+      "platform": "codex",
+      "model": "gpt-6",
+      "name": "botspy-release-readiness"
+    }
+  }
+}

@@ -13,15 +13,11 @@
 use crate::importer::SkipCounter;
 use crate::schema::{Agent, KnownPart, Message, Part, Provenance, Role};
 use crate::session::SessionSummary;
-use crate::snapshot::snapshot_sqlite;
-use rusqlite::OpenFlags;
+use crate::snapshot::SnapshotConnection;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-
-static SNAPSHOT_SEQ: AtomicUsize = AtomicUsize::new(0);
 
 /// What discovery saw in the composer headers table.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -92,17 +88,8 @@ impl CursorSource {
 
     /// A read-only connection to a snapshot copy of the store. The hot WAL
     /// store is never read in place.
-    fn snapshot(&self) -> Result<rusqlite::Connection, crate::snapshot::SnapshotError> {
-        let dir = std::env::temp_dir()
-            .join("botspy-cursor-snaps")
-            .join(format!(
-                "{}-{}",
-                std::process::id(),
-                SNAPSHOT_SEQ.fetch_add(1, Ordering::SeqCst)
-            ));
-        let snapshot = snapshot_sqlite(&self.store, &dir)?;
-        rusqlite::Connection::open_with_flags(snapshot, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(crate::snapshot::SnapshotError::Sqlite)
+    fn snapshot(&self) -> Result<SnapshotConnection, crate::snapshot::SnapshotError> {
+        SnapshotConnection::open(&self.store)
     }
 
     fn read_json(kv: &rusqlite::Connection, key: &str) -> Option<Value> {

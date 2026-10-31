@@ -1,0 +1,25 @@
+{
+  "id": "BOTSPY-fe4535a9-d211-4570-b52f-4013067ee532",
+  "title": "Track upstream unmaintained paste dependency",
+  "description": "RustSec RUSTSEC-2024-0436 marks paste 1.0.15 unmaintained, pulled by tokenizers 0.23.2. No safe upgrade is listed. Track upstream replacement; do not substitute an unverified fork or conceal the advisory. Patched release audit classifies this separately from vulnerabilities.",
+  "type": "chore",
+  "status": "open",
+  "priority": 2,
+  "assignee": "codex-release",
+  "creator": null,
+  "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "labels": [],
+  "dependencies": [],
+  "comments": [],
+  "created_at": "2026-10-20T12:50:31.791110Z",
+  "updated_at": "2026-10-20T12:50:31.791134Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "gpt-6",
+    "name": "botspy-release-readiness"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

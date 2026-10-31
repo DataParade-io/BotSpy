@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "951c4405-cfbf-45e6-9185-3629464b2f3d",
+  "issue_id": "BOTSPY-feb4492e-4b98-441a-9cba-187362a9e911",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-20T12:42:17.528Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Verify repository licensing and release receipts",
+    "description": "Confirm DataParade-io ownership, preserve MIT copyright and terms, verify registry metadata, releases and existing authorized workflow.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": "codex-release",
+    "parent": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+    "labels": [],
+    "agent": {
+      "platform": "codex",
+      "model": "gpt-6",
+      "name": "botspy-release-readiness"
+    }
+  }
+}

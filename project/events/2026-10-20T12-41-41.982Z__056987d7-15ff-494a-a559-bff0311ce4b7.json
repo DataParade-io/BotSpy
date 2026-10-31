@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "event_id": "056987d7-15ff-494a-a559-bff0311ce4b7",
+  "issue_id": "BOTSPY-22939b86-bc1f-4ee6-9ada-de0d7fbd98de",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-20T12:41:41.982Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Public release readiness and launch preparation",
+    "description": "Verify the DataParade-io repository and existing MIT licensing; audit and fix concrete quality/security gaps with synthetic specifications; make installation and CLI/library docs accurate; package and publish via the existing crates.io release setup only; record tested install receipts. Prepare factual publicity for later review and Papyrus-powered sites, with logo design owned by the named project owner in BOTSPY-eb7f2c. Coordinate Git hook installation with the LeftBlock owner. No new credentials, publisher grants, licensing changes, promotional publication, or monitoring/Cyclotron work.",
+    "issue_type": "epic",
+    "status": "open",
+    "priority": 2,
+    "assignee": "codex-release",
+    "parent": "BOTSPY-65cc2188-6204-4f4b-935b-47825bc16845",
+    "labels": [],
+    "agent": {
+      "platform": "codex",
+      "model": "gpt-6",
+      "name": "botspy-release-readiness"
+    }
+  }
+}

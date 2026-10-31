@@ -6,7 +6,7 @@ Feature: The botspy command
   Scenario: The version is the crate version
     When I run "botspy --version"
     Then the exit code is 0
-    And stdout contains "botspy 0.3.0"
+    And stdout reports the current crate version
 
   Scenario: A bad flag value is a usage error
     When I run "botspy sessions --limit abc"
