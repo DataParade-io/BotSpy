@@ -188,24 +188,45 @@ impl Activity {
     }
 }
 
-/// Linear-interpolated quantile of an ascending, non-empty slice.
-fn quantile(sorted: &[Ms], q: f64) -> f64 {
-    let position = q * (sorted.len() - 1) as f64;
-    let low = position.floor() as usize;
-    let high = position.ceil() as usize;
-    sorted[low] as f64 + (sorted[high] - sorted[low]) as f64 * (position - low as f64)
+/// Upper Tukey fence (Q3 + 1.5 IQR) of an unsorted slice.
+fn tukey_fence(values: &[f64]) -> f64 {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let position = |q: f64| q * (sorted.len() - 1) as f64;
+    let at = |q: f64| {
+        let p = position(q);
+        let (low, high) = (p.floor() as usize, p.ceil() as usize);
+        sorted[low] + (sorted[high] - sorted[low]) * (p - low as f64)
+    };
+    let (q1, q3) = (at(0.25), at(0.75));
+    q3 + 1.5 * (q3 - q1)
 }
 
-/// The idle threshold of a session's own gaps: Tukey's upper fence,
-/// Q3 + 1.5 IQR. `None` when there are too few gaps (under 4) to estimate.
-pub fn idle_fence(gaps: &[Ms]) -> Option<f64> {
+/// The idle threshold of a session's own gaps, as a natural logarithm of
+/// milliseconds: a gap whose `ln` is above this is an idle break. `None` when there are too few gaps
+/// (under 4) to estimate.
+///
+/// Gaps are heavy-tailed (seconds between tool calls, minutes of thinking,
+/// hours away), so the Tukey fence is taken on `ln(gap)`. Real sessions
+/// have so many short gaps that the first fence still falls on ordinary
+/// thinking pauses; when 4 or more gaps clear it, the same fence is applied
+/// again among just those, so only gaps that are outliers even among the
+/// long ones count as idle. Nothing is a fixed cutoff.
+pub fn idle_log_threshold(gaps: &[Ms]) -> Option<f64> {
     if gaps.len() < 4 {
         return None;
     }
-    let mut sorted = gaps.to_vec();
-    sorted.sort_unstable();
-    let (q1, q3) = (quantile(&sorted, 0.25), quantile(&sorted, 0.75));
-    Some(q3 + 1.5 * (q3 - q1))
+    let logs: Vec<f64> = gaps
+        .iter()
+        .map(|gap| (*gap).max(1) as f64)
+        .map(f64::ln)
+        .collect();
+    let mut fence = tukey_fence(&logs);
+    let long: Vec<f64> = logs.iter().copied().filter(|log| *log > fence).collect();
+    if long.len() >= 4 {
+        fence = tukey_fence(&long);
+    }
+    Some(fence)
 }
 
 /// Split ascending timestamps into stretches at gaps beyond the fence.
@@ -214,12 +235,12 @@ pub fn stretches_of(times: &[Ms]) -> Vec<Stretch> {
         return Vec::new();
     };
     let gaps: Vec<Ms> = times.windows(2).map(|pair| pair[1] - pair[0]).collect();
-    let fence = idle_fence(&gaps);
+    let fence = idle_log_threshold(&gaps);
     let mut stretches = Vec::new();
     let mut start = first;
     let mut previous = first;
     for &time in rest {
-        if fence.is_some_and(|fence| (time - previous) as f64 > fence) {
+        if fence.is_some_and(|fence| ((time - previous).max(1) as f64).ln() > fence) {
             stretches.push(Stretch {
                 start,
                 end: previous,

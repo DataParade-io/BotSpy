@@ -6,7 +6,8 @@ Feature: Parallel sessions timeline
   API and writes one self-contained local HTML page: a concurrency curve on
   top, project-grouped swimlanes below. Idle detection has no fixed cutoff:
   a gap is idle when it is an outlier among that session's own gaps (Tukey
-  upper fence); a session with fewer than 4 gaps is one stretch; a session
+  upper fence on the logarithm of the gaps, applied again among the gaps
+  that clear it); a session with fewer than 4 gaps is one stretch; a session
   without message timestamps is one span marked approximate. Titles are off
   unless asked for, and message text never appears.
   The scenarios generate their sessions at run time and assert on the
@@ -36,6 +37,12 @@ Feature: Parallel sessions timeline
     When the timeline example renders
     Then that session's lane shows two active stretches
 
+  Scenario: Ordinary thinking pauses are not idle breaks
+    Given a session of bursts seconds apart, occasional pauses of a few minutes and one multi-hour break
+    When the timeline example renders
+    Then that session's lane shows two active stretches
+    And its only idle break is the multi-hour gap
+
   Scenario: A session without message timestamps is approximate
     Given a session with a start and last-activity time but no message timestamps
     When the timeline example renders
@@ -51,6 +58,24 @@ Feature: Parallel sessions timeline
     Given session "c" was spawned by a session outside the selected time window
     When the timeline example renders
     Then lane "c" is shown at top level with a note naming its missing parent
+
+  Scenario: A project is labelled by its repository, never by the home directory
+    Given a Claude Code session with an encoded project id and a working directory
+    When the timeline example renders
+    Then the project is labelled by the repository name
+    And the page never contains the home-directory name
+
+  Scenario: An encoded project id without a working directory is cut down
+    Given a Claude Code session with an encoded project id and no working directory
+    When the timeline example renders
+    Then the project is labelled by what follows its "-Projects-" component
+    And the page never contains the home-directory name
+
+  Scenario: Long project names are ellipsized with the full name on hover
+    Given a session in a project with a very long name
+    When the timeline example renders
+    Then the project label is ellipsized and its tooltip holds the full name
+    And the project's session count is still shown
 
   Scenario: Titles are left out by default
     Given a session titled "Fix the billing export"

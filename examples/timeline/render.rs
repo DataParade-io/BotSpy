@@ -85,13 +85,39 @@ fn short_id(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
-/// The project as shown: the last path segment of its id.
-fn project_label(project_id: &str) -> String {
-    project_id
-        .rsplit(['/', '\\'])
-        .find(|segment| !segment.is_empty())
-        .unwrap_or(project_id)
-        .to_string()
+/// The project as shown. The session's working directory names it when
+/// known; otherwise the last `/` or `\` segment of the id. Claude Code's
+/// dash-encoded paths (`-Users-<name>-Projects-<Repo>`) never show whole:
+/// they keep what follows the last `-Projects-`, or what follows the home
+/// directory's user name, or fall back to a short hash label.
+fn project_label(session: &Session) -> String {
+    let last_segment = |path: &str| {
+        path.rsplit(['/', '\\'])
+            .find(|segment| !segment.is_empty())
+            .map(str::to_string)
+    };
+    if let Some(name) = session.metadata.cwd.as_deref().and_then(last_segment) {
+        return name;
+    }
+    let id = session.project_id.as_str();
+    let encoded_rest = ["-Users-", "-home-"]
+        .iter()
+        .find_map(|prefix| id.strip_prefix(prefix));
+    let Some(rest) = encoded_rest else {
+        return last_segment(id).unwrap_or_else(|| id.to_string());
+    };
+    let lowered = rest.to_lowercase();
+    let kept = match lowered.rfind("-projects-") {
+        Some(at) => &rest[at + "-projects-".len()..],
+        None => rest.split_once('-').map_or("", |(_, tail)| tail),
+    };
+    if kept.is_empty() {
+        let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+        return format!("project-{:08x}", hash >> 32);
+    }
+    kept.to_string()
 }
 
 fn truncate(text: &str, max: usize) -> String {
@@ -145,7 +171,7 @@ fn select<'a>(sessions: &'a [Session], options: &Options) -> Vec<Lane<'a>> {
             Some(Lane {
                 session,
                 activity,
-                project: project_label(&session.project_id),
+                project: project_label(session),
                 depth: 0,
                 nested: false,
                 missing_parent: None,
@@ -451,12 +477,13 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
     for ((project, group), top) in groups.iter().zip(&group_tops) {
         let _ = writeln!(
             page,
-            "<g class=\"project\" data-project=\"{0}\"><text class=\"project-label\" x=\"8\" y=\"{1:.1}\">{0}</text><text class=\"axis\" x=\"{2:.1}\" y=\"{1:.1}\" text-anchor=\"end\">{3} session{4}</text></g>",
+            "<g class=\"project\" data-project=\"{0}\"><text class=\"project-label\" x=\"8\" y=\"{1:.1}\">{5}<title>{0}</title></text><text class=\"axis\" x=\"{2:.1}\" y=\"{1:.1}\" text-anchor=\"end\">{3} session{4}</text></g>",
             esc(project),
             top + 18.0,
             LABEL_W - 8.0,
             group.len(),
-            if group.len() == 1 { "" } else { "s" }
+            if group.len() == 1 { "" } else { "s" },
+            esc(&truncate(project, 20))
         );
         for lane in group {
             let session = lane.session;

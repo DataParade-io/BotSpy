@@ -119,6 +119,70 @@ fn session_with_long_gap(world: &mut BotSpyWorld) {
     add(world, session_at("gappy", "alpha", DAY, &minutes));
 }
 
+#[given(
+    regex = r#"^a session of bursts seconds apart, occasional pauses of a few minutes and one multi-hour break$"#
+)]
+fn session_with_real_shaped_gaps(world: &mut BotSpyWorld) {
+    let mut now = parse_time(&at(DAY, "09:00")).expect("start");
+    let mut stamps = vec![now];
+    for i in 0..600_i64 {
+        let gap = if i == 300 {
+            3 * 3600
+        } else if i % 30 == 29 {
+            180 + (i * 37) % 420
+        } else {
+            2 + (i * 7) % 19
+        };
+        now += gap * 1000;
+        stamps.push(now);
+    }
+    let mut session = session_at("real-shaped", "alpha", DAY, &[0, 1]);
+    session.messages = stamps
+        .iter()
+        .map(|stamp| message(Some(format_iso(*stamp))))
+        .collect();
+    session.started_at = format_iso(stamps[0]);
+    session.last_activity_at = format_iso(*stamps.last().expect("stamps"));
+    add(world, session);
+}
+
+const HOME_USER: &str = "synthuser";
+
+#[given(regex = r#"^a Claude Code session with an encoded project id and a working directory$"#)]
+fn encoded_project_with_cwd(world: &mut BotSpyWorld) {
+    let mut session = session_at(
+        "encoded",
+        &format!("-Users-{HOME_USER}-Projects-Widget-Factory"),
+        DAY,
+        &every_five("09:00", "09:30"),
+    );
+    session.metadata.cwd = Some(format!("/Users/{HOME_USER}/Projects/WidgetFactory"));
+    add(world, session);
+}
+
+#[given(regex = r#"^a Claude Code session with an encoded project id and no working directory$"#)]
+fn encoded_project_without_cwd(world: &mut BotSpyWorld) {
+    add(
+        world,
+        session_at(
+            "encoded",
+            &format!("-Users-{HOME_USER}-Projects-Widget-Factory"),
+            DAY,
+            &every_five("09:00", "09:30"),
+        ),
+    );
+}
+
+const LONG_PROJECT: &str = "a-remarkably-long-project-name-for-a-narrow-column";
+
+#[given(regex = r#"^a session in a project with a very long name$"#)]
+fn session_in_long_project(world: &mut BotSpyWorld) {
+    add(
+        world,
+        session_at("long", LONG_PROJECT, DAY, &every_five("09:00", "09:30")),
+    );
+}
+
 #[given(regex = r#"^a session with a start and last-activity time but no message timestamps$"#)]
 fn session_without_timestamps(world: &mut BotSpyWorld) {
     let mut session = session_at("untimed", "alpha", DAY, &every_five("09:00", "10:00"));
@@ -396,13 +460,14 @@ fn lanes_ordered_by_start(world: &mut BotSpyWorld) {
 #[then(regex = r#"^that session's lane shows two active stretches$"#)]
 fn lane_has_two_stretches(world: &mut BotSpyWorld) {
     let views = lanes(html(world));
-    let stretches = lane(&views, "gappy").stretches();
+    assert_eq!(views.len(), 1);
+    let stretches = views[0].stretches();
     assert_eq!(stretches.len(), 2);
     assert!(
         !stretches.iter().any(|tag| tag.contains("approximate")),
         "message-based stretches are not approximate"
     );
-    assert!(lane(&views, "gappy").block.contains("class=\"idle\""));
+    assert!(views[0].block.contains("class=\"idle\""));
 }
 
 #[then(regex = r#"^its lane shows one span marked approximate$"#)]
@@ -721,4 +786,60 @@ fn imports_only_botspy_and_std(_world: &mut BotSpyWorld) {
             );
         }
     }
+}
+
+#[then(regex = r#"^its only idle break is the multi-hour gap$"#)]
+fn only_multi_hour_break(world: &mut BotSpyWorld) {
+    let views = lanes(html(world));
+    let idle = tags(&lane(&views, "real-shaped").block, "<line class=\"idle\"");
+    assert_eq!(idle.len(), 1);
+    let (start, end) = (
+        parse_time(&attr(&idle[0], "data-start").expect("start")).expect("time"),
+        parse_time(&attr(&idle[0], "data-end").expect("end")).expect("time"),
+    );
+    assert!(
+        end - start >= 3 * 3600 * 1000,
+        "the break is not the long gap"
+    );
+}
+
+#[then(regex = r#"^the project is labelled by the repository name$"#)]
+fn labelled_by_repository(world: &mut BotSpyWorld) {
+    let page = html(world);
+    assert!(page.contains("<g class=\"project\" data-project=\"WidgetFactory\">"));
+    assert!(page.contains(">WidgetFactory<title>WidgetFactory</title>"));
+}
+
+#[then(regex = r#"^the project is labelled by what follows its "-Projects-" component$"#)]
+fn labelled_after_projects(world: &mut BotSpyWorld) {
+    let page = html(world);
+    assert!(page.contains("data-project=\"Widget-Factory\""));
+    assert!(!page.contains("-Users-"));
+}
+
+#[then(regex = r#"^the page never contains the home-directory name$"#)]
+fn no_home_name(world: &mut BotSpyWorld) {
+    assert!(!html(world).contains(HOME_USER));
+}
+
+#[then(regex = r#"^the project label is ellipsized and its tooltip holds the full name$"#)]
+fn label_ellipsized(world: &mut BotSpyWorld) {
+    let page = html(world);
+    let start = page.find("<text class=\"project-label\"").expect("label");
+    let label = &page[start..start + page[start..].find("</text>").expect("end")];
+    assert!(label.contains('…'), "label is not ellipsized: {label}");
+    assert!(label.contains(&format!("<title>{LONG_PROJECT}</title>")));
+    let shown = label
+        .split('>')
+        .nth(1)
+        .expect("text")
+        .split('<')
+        .next()
+        .expect("text");
+    assert!(shown.chars().count() <= 20);
+}
+
+#[then(regex = r#"^the project's session count is still shown$"#)]
+fn count_shown(world: &mut BotSpyWorld) {
+    assert!(html(world).contains(">1 session</text>"));
 }
