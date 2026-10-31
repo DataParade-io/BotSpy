@@ -1,0 +1,25 @@
+{
+  "id": "BOTSPY-af1767f4-b15f-4a93-b944-21817b888ebb",
+  "title": "Import Claude Code sub-agent transcripts as spawned sessions",
+  "description": "Claude Code writes sub-agent sidechains at <project>/<session-id>/subagents/agent-<agentId>.jsonl with a sibling agent-<agentId>.meta.json (agentType, description, toolUseId, spawnDepth, model). Discovery currently looks for <project>/subagents (wrong place, counts 0) and skips them. Import each as its own session: parent_id = the owning session, subagent = SubagentInfo{kind: agentType, nesting_depth: spawnDepth}, spawn moment = the parent turn that issued toolUseId (or the sidechain's first timestamp). Timeline then nests them. Gherkin specs + synthetic fixtures; doctor counts updated.",
+  "type": "story",
+  "status": "open",
+  "priority": 2,
+  "assignee": null,
+  "creator": null,
+  "parent": null,
+  "labels": [],
+  "dependencies": [],
+  "comments": [],
+  "created_at": "2026-10-31T19:56:44.114623Z",
+  "updated_at": "2026-10-31T19:56:49.797319Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "claude_code",
+    "model": "Opus 5.5",
+    "name": "main session"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

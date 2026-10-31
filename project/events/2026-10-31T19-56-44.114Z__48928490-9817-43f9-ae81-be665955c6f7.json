@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "event_id": "48928490-9817-43f9-ae81-be665955c6f7",
+  "issue_id": "BOTSPY-af1767f4-b15f-4a93-b944-21817b888ebb",
+  "event_type": "issue_created",
+  "occurred_at": "2026-10-31T19:56:44.114Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Import Claude Code sub-agent transcripts as spawned sessions",
+    "description": "Claude Code writes sub-agent sidechains at <project>/<session-id>/subagents/agent-<agentId>.jsonl with a sibling agent-<agentId>.meta.json (agentType, description, toolUseId, spawnDepth, model). Discovery currently looks for <project>/subagents (wrong place, counts 0) and skips them. Import each as its own session: parent_id = the owning session, subagent = SubagentInfo{kind: agentType, nesting_depth: spawnDepth}, spawn moment = the parent turn that issued toolUseId (or the sidechain's first timestamp). Timeline then nests them. Gherkin specs + synthetic fixtures; doctor counts updated.",
+    "issue_type": "story",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": null,
+    "labels": []
+  }
+}
