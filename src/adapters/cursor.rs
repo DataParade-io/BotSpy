@@ -18,6 +18,7 @@ use crate::snapshot::SnapshotConnection;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 /// What discovery saw in the composer headers table.
@@ -73,6 +74,43 @@ pub struct CursorSource {
     /// `lastUpdatedAt` observed per composer on the previous discovery, so
     /// changed composers can be re-detected.
     observed: Mutex<BTreeMap<String, String>>,
+    /// The one snapshot copy of the store, kept while the store is unchanged.
+    cache: Mutex<Option<CachedSnapshot>>,
+    /// How many snapshot copies this source has taken.
+    copies_taken: AtomicUsize,
+}
+
+/// What identifies the state of the store on disk: size and modification
+/// time of the database and of its write-ahead log, when each exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StoreFingerprint {
+    database: Option<(u64, std::time::SystemTime)>,
+    wal: Option<(u64, std::time::SystemTime)>,
+}
+
+impl StoreFingerprint {
+    fn of(store: &Path) -> Self {
+        let mut wal = store.as_os_str().to_owned();
+        wal.push("-wal");
+        Self {
+            database: Self::stat(store),
+            // Opening the store read-only can itself create an empty WAL, so
+            // an empty log means the same as no log: neither holds data.
+            wal: Self::stat(Path::new(&wal)).filter(|(len, _)| *len > 0),
+        }
+    }
+
+    fn stat(path: &Path) -> Option<(u64, std::time::SystemTime)> {
+        let metadata = std::fs::metadata(path).ok()?;
+        Some((metadata.len(), metadata.modified().ok()?))
+    }
+}
+
+/// A snapshot copy and the store state it was taken from.
+#[derive(Debug)]
+struct CachedSnapshot {
+    fingerprint: StoreFingerprint,
+    connection: SnapshotConnection,
 }
 
 impl CursorSource {
@@ -81,7 +119,25 @@ impl CursorSource {
         Self {
             store: store.into(),
             observed: Mutex::new(BTreeMap::new()),
+            cache: Mutex::new(None),
+            copies_taken: AtomicUsize::new(0),
         }
+    }
+
+    /// How many snapshot copies of the store this source has taken. Calls
+    /// over an unchanged store share one copy, so this only grows when the
+    /// store changes.
+    pub fn snapshots_taken(&self) -> usize {
+        self.copies_taken.load(Ordering::SeqCst)
+    }
+
+    /// The directory holding the current snapshot copy, if one exists. It
+    /// is removed when the copy is replaced or the source is dropped.
+    pub fn snapshot_directory(&self) -> Option<PathBuf> {
+        let cache = self.cache.lock().expect("snapshot cache");
+        cache
+            .as_ref()
+            .map(|cached| cached.connection.directory().to_path_buf())
     }
 
     /// The store this source watches.
@@ -89,10 +145,31 @@ impl CursorSource {
         &self.store
     }
 
-    /// A read-only connection to a snapshot copy of the store. The hot WAL
-    /// store is never read in place.
-    fn snapshot(&self) -> Result<SnapshotConnection, crate::snapshot::SnapshotError> {
-        SnapshotConnection::open(&self.store)
+    /// Run `read` over a read-only connection to a snapshot copy of the
+    /// store; the hot WAL store is never read in place. The copy is kept
+    /// and reused for as long as the store's fingerprint is unchanged. When
+    /// it changes, the old copy is removed before a fresh one is taken, so
+    /// at most one copy exists at a time.
+    fn with_snapshot<R>(
+        &self,
+        read: impl FnOnce(&rusqlite::Connection) -> R,
+    ) -> Result<R, crate::snapshot::SnapshotError> {
+        let mut cache = self.cache.lock().expect("snapshot cache");
+        let fingerprint = StoreFingerprint::of(&self.store);
+        if cache
+            .as_ref()
+            .is_none_or(|cached| cached.fingerprint != fingerprint)
+        {
+            *cache = None;
+            let connection = SnapshotConnection::open(&self.store)?;
+            self.copies_taken.fetch_add(1, Ordering::SeqCst);
+            *cache = Some(CachedSnapshot {
+                fingerprint,
+                connection,
+            });
+        }
+        let cached = cache.as_ref().expect("snapshot cached");
+        Ok(read(&cached.connection))
     }
 
     fn read_json(kv: &rusqlite::Connection, key: &str) -> Option<Value> {
@@ -146,10 +223,8 @@ impl CursorSource {
     /// Discover composers from the headers table, reporting the ones whose
     /// `lastUpdatedAt` changed since the previous discovery.
     pub fn discover(&self) -> (Vec<SessionSummary>, CursorDiscovery) {
-        match self.snapshot() {
-            Ok(kv) => self.discover_in(&kv),
-            Err(_) => (Vec::new(), CursorDiscovery::default()),
-        }
+        self.with_snapshot(|kv| self.discover_in(kv))
+            .unwrap_or_else(|_| (Vec::new(), CursorDiscovery::default()))
     }
 
     /// Discovery over an already-open snapshot, so a caller that needs the
@@ -200,21 +275,26 @@ impl CursorSource {
             report.issues.push("KV store file is missing".to_string());
             return report;
         }
-        let Ok(kv) = self.snapshot() else {
+        let read = self.with_snapshot(|kv| {
+            let composers = self.discover_in(kv).0.len();
+            let bubbles = kv
+                .query_row(
+                    "SELECT COUNT(*) FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap_or(0) as usize;
+            (composers, bubbles, Self::composer_headers(kv).is_none())
+        });
+        let Ok((composers, bubbles, headers_missing)) = read else {
             report
                 .issues
                 .push("KV store could not be snapshotted".to_string());
             return report;
         };
-        report.composers = self.discover_in(&kv).0.len();
-        report.bubbles = kv
-            .query_row(
-                "SELECT COUNT(*) FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .unwrap_or(0) as usize;
-        if Self::composer_headers(&kv).is_none() {
+        report.composers = composers;
+        report.bubbles = bubbles;
+        if headers_missing {
             report
                 .issues
                 .push("composerHeaders entry is missing or unreadable".to_string());
@@ -226,8 +306,13 @@ impl CursorSource {
     /// order — the bubble keys themselves are unordered. Returns `None`
     /// when no composer with that id exists.
     pub fn extract(&self, composer_id: &str) -> Option<CursorExtraction> {
-        let kv = self.snapshot().ok()?;
-        let composer_data = Self::read_json(&kv, &format!("composerData:{composer_id}"))?;
+        self.with_snapshot(|kv| self.extract_in(kv, composer_id))
+            .ok()?
+    }
+
+    /// Extraction over an already-open snapshot.
+    fn extract_in(&self, kv: &rusqlite::Connection, composer_id: &str) -> Option<CursorExtraction> {
+        let composer_data = Self::read_json(kv, &format!("composerData:{composer_id}"))?;
         let headers = composer_data
             .get("fullConversationHeadersOnly")
             .and_then(Value::as_array)
@@ -253,7 +338,7 @@ impl CursorSource {
                 .or_else(|| header.as_str())
                 .unwrap_or_default();
             let key = format!("bubbleId:{composer_id}:{bubble_id}");
-            let Some(bubble) = Self::read_json(&kv, &key) else {
+            let Some(bubble) = Self::read_json(kv, &key) else {
                 skipped.malformed += 1;
                 continue;
             };
@@ -1066,5 +1151,106 @@ mod tests {
         assert_eq!(stats.changed.len(), 2);
         assert_eq!(source.extract("composer-1").unwrap().good, 1);
         assert!(source.doctor().issues.is_empty());
+    }
+
+    fn seeded_source(tag: &str, composers: usize) -> (CursorSource, PathBuf) {
+        let store = temp_store(tag);
+        let conn = open_store(&store);
+        let headers: Vec<Value> = (1..=composers)
+            .map(|i| json!({"composerId": format!("c{i}"), "lastUpdatedAt": i, "name": "demo"}))
+            .collect();
+        put(&conn, "composerHeaders", &json!(headers));
+        for i in 1..=composers {
+            put(
+                &conn,
+                &format!("composerData:c{i}"),
+                &json!({"name": "demo", "fullConversationHeadersOnly": [{"bubbleId": "b1"}]}),
+            );
+            put(
+                &conn,
+                &format!("bubbleId:c{i}:b1"),
+                &json!({"type": 1, "text": "hello"}),
+            );
+        }
+        drop(conn);
+        (CursorSource::new(&store), store)
+    }
+
+    #[test]
+    fn discover_extract_and_doctor_share_one_snapshot() {
+        let (source, _store) = seeded_source("one-copy", 5);
+        assert_eq!(source.snapshots_taken(), 0);
+        assert!(source.snapshot_directory().is_none());
+        let (summaries, _) = source.discover();
+        for summary in &summaries {
+            assert_eq!(source.extract(&summary.id).unwrap().good, 1);
+        }
+        assert!(source.doctor().issues.is_empty());
+        assert_eq!(summaries.len(), 5);
+        assert_eq!(source.snapshots_taken(), 1);
+    }
+
+    #[test]
+    fn a_changed_store_gets_a_fresh_snapshot_and_the_old_copy_goes() {
+        let (source, store) = seeded_source("fresh-copy", 2);
+        assert_eq!(source.extract("c1").unwrap().good, 1);
+        let first = source.snapshot_directory().unwrap();
+        assert!(first.exists());
+
+        let conn = open_store(&store);
+        put(
+            &conn,
+            "bubbleId:c1:b2",
+            &json!({"type": 1, "text": "fresh"}),
+        );
+        put(
+            &conn,
+            "composerData:c1",
+            &json!({"name": "demo", "fullConversationHeadersOnly": [
+                {"bubbleId": "b1"}, {"bubbleId": "b2"}]}),
+        );
+        // Keep the writer open so the change sits in the WAL.
+        assert_eq!(source.extract("c1").unwrap().good, 2);
+        drop(conn);
+        assert_eq!(source.snapshots_taken(), 2);
+        let second = source.snapshot_directory().unwrap();
+        assert_ne!(first, second);
+        assert!(!first.exists(), "the stale copy must be removed");
+        assert!(second.exists());
+    }
+
+    #[test]
+    fn a_wal_only_change_is_noticed() {
+        let (source, store) = seeded_source("wal-change", 1);
+        let writer = open_store(&store);
+        put(&writer, "unrelated", &json!(1));
+        source.discover();
+        let wal = {
+            let mut wal = store.as_os_str().to_owned();
+            wal.push("-wal");
+            PathBuf::from(wal)
+        };
+        assert!(wal.exists(), "the open writer keeps the WAL");
+        put(&writer, "unrelated", &json!(2));
+        source.discover();
+        assert_eq!(source.snapshots_taken(), 2);
+    }
+
+    #[test]
+    fn the_copy_is_removed_when_the_source_drops() {
+        let (source, _store) = seeded_source("drop-copy", 1);
+        source.discover();
+        let directory = source.snapshot_directory().unwrap();
+        assert!(directory.join("snapshot.db").exists());
+        drop(source);
+        assert!(!directory.exists());
+    }
+
+    #[test]
+    fn a_missing_store_takes_no_copy() {
+        let source = CursorSource::new(temp_store("missing"));
+        assert!(source.discover().0.is_empty());
+        assert!(source.extract("c1").is_none());
+        assert_eq!(source.snapshots_taken(), 0);
     }
 }
