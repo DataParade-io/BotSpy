@@ -259,7 +259,10 @@ fn read_installation(world: &mut BotSpyWorld) {
     state.digest_before = Some(digest_files(&paths));
     let opened = match &state.link {
         Some(link) => {
+            #[cfg(unix)]
             std::os::unix::fs::symlink(&store, link).expect("link the store");
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_file(&store, link).expect("link the store");
             link.clone()
         }
         None => store,

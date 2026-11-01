@@ -1775,6 +1775,7 @@ mod tests {
         assert_eq!(session.metadata.title.as_deref(), Some("A title"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn workspace_lookup_follows_a_symlinked_store_and_is_read_only() {
         let (store, conn) = layout("link", &[(WS_A, json!({"folder": "file:///work/demo"}))]);
