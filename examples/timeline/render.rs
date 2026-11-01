@@ -461,13 +461,17 @@ fn session_name(session: &Session) -> String {
     }
 }
 
-/// The text of a lane label: sub-agents carry their own arrow.
+/// The text of a lane label: sub-agents carry their own arrow. A long
+/// sub-agent kind is cut, never its id, so sibling lanes stay distinct.
 fn lane_label_text(session: &Session) -> String {
-    let name = session_name(session);
-    if session.subagent.is_some() {
-        truncate(&format!("↳ {name}"), 20)
-    } else {
-        truncate(&name, 20)
+    match &session.subagent {
+        Some(info) => {
+            let id = subagent_short_id(&session.id);
+            // "↳ " + kind + " " + id fits the 20-character label.
+            let room = 20usize.saturating_sub(3 + id.chars().count());
+            format!("↳ {} {id}", truncate(&capitalised(&info.kind), room))
+        }
+        None => truncate(&session_name(session), 20),
     }
 }
 

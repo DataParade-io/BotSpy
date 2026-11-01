@@ -1262,15 +1262,6 @@ fn lane_labelled(world: &mut BotSpyWorld, id: String, label: String) {
     assert_eq!(label_of(world, &id), label);
 }
 
-#[then(
-    regex = r#"^the lane "([^"]+)" is labelled with at most 20 characters ending in an ellipsis$"#
-)]
-fn lane_label_cut(world: &mut BotSpyWorld, id: String) {
-    let label = label_of(world, &id);
-    assert_eq!(label.chars().count(), 20, "{label}");
-    assert!(label.ends_with('…'));
-}
-
 #[then(regex = r#"^the tooltip of lane "([^"]+)" holds its full session id and kind$"#)]
 fn lane_tooltip(world: &mut BotSpyWorld, id: String) {
     let views = lanes(html(world));
