@@ -1032,10 +1032,24 @@ fn resolve_encoded_dir_under(root: &Path, encoded: &str) -> Option<PathBuf> {
     }
     fn walk(dir: &Path, rest: &str) -> Option<PathBuf> {
         let mut children: Vec<(String, PathBuf)> = std::fs::read_dir(dir)
-            .ok()?
+            .into_iter()
+            .flatten()
             .flatten()
             .filter_map(|entry| Some((flatten(entry.file_name().to_str()?), entry.path())))
             .collect();
+        // A directory can be passable but not listable (no read
+        // permission, or an emulator that maps listings of `/` elsewhere),
+        // so each leading stretch of the name, taken literally, is also
+        // tried by path: one stat per `-` in the name.
+        for (end, _) in rest
+            .match_indices('-')
+            .chain(std::iter::once((rest.len(), "")))
+        {
+            let name = &rest[..end];
+            if !name.is_empty() && !children.iter().any(|(seen, _)| seen == name) {
+                children.push((name.to_string(), dir.join(name)));
+            }
+        }
         children.sort();
         for (name, path) in children {
             let after = if rest == name {
@@ -1775,6 +1789,7 @@ mod tests {
         assert_eq!(session.metadata.title.as_deref(), Some("A title"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn workspace_lookup_follows_a_symlinked_store_and_is_read_only() {
         let (store, conn) = layout("link", &[(WS_A, json!({"folder": "file:///work/demo"}))]);
@@ -2018,6 +2033,18 @@ mod tests {
             std::fs::create_dir_all(root.path().join(dir)).unwrap();
         }
         root
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_inside_an_unlistable_parent_resolves() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tree(&["work/locked/app"]);
+        let locked = root.path().join("work/locked");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o311)).unwrap();
+        let found = resolve_encoded_dir_under(root.path(), "work-locked-app");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(found, Some(root.path().join("work/locked/app")));
     }
 
     #[test]

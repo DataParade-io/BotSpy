@@ -165,6 +165,15 @@ Feature: Cursor importer
     When the Cursor importer detects changes
     Then the discovered CLI session "s1" is in the real folder
 
+  Scenario: A CLI project folder inside a folder that cannot be listed still resolves
+    A folder can be passable without being listable, and some emulated
+    environments list the root of another filesystem. The resolver also
+    tries each leading stretch of the name directly, so the real folder is
+    still found.
+    Given a Cursor projects directory with a CLI session "s1" encoded from the real folder "app" inside a folder that cannot be listed
+    When the Cursor importer detects changes
+    Then the discovered CLI session "s1" is in the real folder
+
   Scenario: A CLI project directory whose folder does not exist leaves the working directory unset
     Given a Cursor projects directory with a CLI session "s1" encoded from a folder that does not exist
     When the Cursor importer detects changes

@@ -835,6 +835,24 @@ fn cli_session_from_real_folder(world: &mut BotSpyWorld, session: String, folder
 }
 
 #[given(
+    regex = r#"^a Cursor projects directory with a CLI session "([^"]+)" encoded from the real folder "([^"]+)" inside a folder that cannot be listed$"#
+)]
+fn cli_session_inside_unlistable_folder(world: &mut BotSpyWorld, session: String, folder: String) {
+    let locked = plain_base().join("locked");
+    let real = locked.join(&folder);
+    std::fs::create_dir_all(&real).expect("create the real folder");
+    // Passable but not listable: execute without read.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o311))
+            .expect("make the folder unlistable");
+    }
+    cli_project_with_session(world, &session, &encode_cli_project(&real));
+    world.cur_real_folder = Some(real);
+}
+
+#[given(
     regex = r#"^a Cursor projects directory with a CLI session "([^"]+)" encoded from a folder that does not exist$"#
 )]
 fn cli_session_from_missing_folder(world: &mut BotSpyWorld, session: String) {
@@ -845,7 +863,14 @@ fn cli_session_from_missing_folder(world: &mut BotSpyWorld, session: String) {
 
 fn cwd_matches_real_folder(cwd: Option<&str>, world: &BotSpyWorld) {
     let real = world.cur_real_folder.as_ref().expect("no real folder");
-    assert_eq!(cwd, real.to_str());
+    // Compare as paths: a folder given as "dev.tools/app" is spelled with
+    // the platform's own separator once resolved.
+    let cwd = cwd.expect("no working directory");
+    assert!(
+        std::path::Path::new(cwd).components().eq(real.components()),
+        "{cwd} is not {}",
+        real.display()
+    );
 }
 
 #[then(regex = r#"^the discovered CLI session "([^"]+)" is in the real folder$"#)]
