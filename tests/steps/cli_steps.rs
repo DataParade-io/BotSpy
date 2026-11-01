@@ -92,8 +92,18 @@ fn build_home(home: &Path, sources: &[&str]) {
                 write_solo_session(home);
             }
             "cursor" => {
+                // Where the IDE keeps its store on this platform.
+                let store = botspy::cli::cursor_store_path(home, std::env::consts::OS, None);
+                std::fs::create_dir_all(store.parent().expect("store dir"))
+                    .expect("create the Cursor store dir");
+                copy_entry(&cursor_store_path(), &store);
+            }
+            "cursor_cli" => {
                 std::fs::create_dir_all(home.join(".cursor")).expect("create .cursor");
-                copy_entry(&cursor_store_path(), &home.join(".cursor/state.vscdb"));
+                copy_entry(
+                    &corpus_root().join("cursor/cli/projects"),
+                    &home.join(".cursor/projects"),
+                );
             }
             "codex" => copy_entry(&corpus_root().join("codex"), &home.join(".codex")),
             "grok_bot" => {
@@ -120,7 +130,14 @@ fn fixture_home(world: &mut BotSpyWorld) {
     let home = scratch("home");
     build_home(
         &home,
-        &["claude_code", "cursor", "codex", "grok_bot", "antigravity"],
+        &[
+            "claude_code",
+            "cursor",
+            "cursor_cli",
+            "codex",
+            "grok_bot",
+            "antigravity",
+        ],
     );
     world.cli_home = Some(home);
 }
@@ -192,6 +209,9 @@ fn expand_with(world: &mut BotSpyWorld, text: &str) -> String {
     let mut text = text.replace("{out_dir}", &out_dir(world).to_string_lossy());
     if let Some(home) = world.cli_home.clone() {
         text = text.replace("{home}", &home.display().to_string());
+    }
+    if let Some(root) = world.cur_cli_root.clone() {
+        text = text.replace("{cursor_cli_root}", &root.display().to_string());
     }
     text.replace(
         "{claude_projects_root}",

@@ -46,6 +46,21 @@ impl Adapter for cursor::CursorSource {
     }
 }
 
+impl Adapter for cursor::CursorCliSource {
+    fn agent(&self) -> Agent {
+        Agent::Cursor
+    }
+
+    fn discover(&self) -> Vec<SessionSummary> {
+        let (summaries, _) = cursor::CursorCliSource::discover(self);
+        summaries
+    }
+
+    fn open(&self, id: &str) -> Option<Session> {
+        self.extract(id).map(|extraction| extraction.session)
+    }
+}
+
 impl Adapter for codex::CodexSource {
     fn agent(&self) -> Agent {
         Agent::Codex

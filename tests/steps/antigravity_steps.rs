@@ -441,3 +441,228 @@ fn extraction_maps_good(world: &mut BotSpyWorld, count: usize) {
         "extraction mapped the wrong records"
     );
 }
+
+// ── current schema (conversation_summaries) ─────────────────────────────────
+
+/// The current `conversation_summaries` table, trimmed to the columns the
+/// importer reads. The first id is a root conversation; the others are
+/// sub-agents spawned by it, one level down, the first named "research".
+fn write_current_summaries(root: &Path, parent: &str, children: &[&str]) {
+    let conn = open_store(&root.join("conversation_summaries.db"));
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS conversation_summaries (conversation_id TEXT PRIMARY KEY, \
+         title TEXT, preview TEXT, step_count INTEGER, last_modified_time TEXT, \
+         workspace_uris TEXT, status TEXT, source TEXT, project_id TEXT, agent_name TEXT, \
+         parent_conversation_id TEXT, nesting_depth INTEGER, raw_summary BLOB)",
+        [],
+    )
+    .expect("create conversation_summaries table");
+    let mut rows = vec![(parent.to_string(), String::new(), 0i64, "self")];
+    for (index, child) in children.iter().enumerate() {
+        let agent = if index == 0 { "research" } else { "" };
+        rows.push((child.to_string(), parent.to_string(), 1, agent));
+    }
+    for (id, parent_id, depth, agent) in rows {
+        conn.execute(
+            "INSERT OR REPLACE INTO conversation_summaries (conversation_id, title, \
+             last_modified_time, project_id, agent_name, parent_conversation_id, nesting_depth) \
+             VALUES (?1, ?2, '2026-10-01 09:00:00.123456+00:00', 'demo-project', ?3, ?4, ?5)",
+            rusqlite::params![id, format!("title of {id}"), agent, parent_id, depth],
+        )
+        .expect("insert conversation summary");
+    }
+}
+
+#[given(
+    regex = r#"^a current-schema Antigravity summaries index with a conversation "([^"]+)" and its sub-agents "([^"]+)" and "([^"]+)"$"#
+)]
+fn current_schema_index(world: &mut BotSpyWorld, parent: String, first: String, second: String) {
+    let root = new_root(world);
+    write_current_summaries(&root, &parent, &[&first, &second]);
+    for id in [&parent, &first, &second] {
+        write_transcript(&root, id, &[user_input(1, "hello")]);
+    }
+    world.ag_source = Some(AntigravitySource::new(root));
+}
+
+#[given(regex = r#"^a transcript for each conversation$"#)]
+fn transcript_for_each(world: &mut BotSpyWorld) {
+    let root = world.ag_root.clone().expect("no Antigravity data root");
+    for id in ["conv-1", "conv-2"] {
+        write_transcript(&root, id, &[user_input(1, "hello")]);
+    }
+}
+
+#[given(
+    regex = r#"^a current-schema Antigravity transcript with user, planner, generic, system, error and checkpoint steps$"#
+)]
+fn current_schema_transcript(world: &mut BotSpyWorld) {
+    let root = new_root(world);
+    write_current_summaries(&root, CONVERSATION, &[]);
+    let record = |step: u64, ty: &str, source: &str, extra: &str| {
+        format!(
+            r#"{{"type":"{ty}","step_index":{step},"source":"{source}","status":"DONE","created_at":"2026-10-01T09:00:0{step}Z",{extra}}}"#
+        )
+    };
+    write_transcript(
+        &root,
+        CONVERSATION,
+        &[
+            record(0, "USER_INPUT", "USER_EXPLICIT", r#""content":"go""#),
+            record(
+                1,
+                "PLANNER_RESPONSE",
+                "MODEL",
+                r#""thinking":"hmm","tool_calls":[{"name":"run","args":{"cmd":"ls"}}]"#,
+            ),
+            record(2, "GENERIC", "MODEL", r#""content":"output""#),
+            record(3, "SYSTEM_MESSAGE", "SYSTEM", r#""content":"note""#),
+            record(4, "ERROR_MESSAGE", "SYSTEM", r#""error":"boom""#),
+            record(5, "CHECKPOINT", "SYSTEM", r#""content":"state""#),
+        ],
+    );
+    finish_setup(world);
+}
+
+#[when(regex = r#"^the Antigravity importer extracts the conversation "([^"]+)"$"#)]
+fn extract_named_conversation(world: &mut BotSpyWorld, id: String) {
+    let source = world.ag_source.as_ref().expect("no Antigravity source");
+    let extraction = source
+        .extract(&id)
+        .expect("no transcript for the conversation");
+    world.skipped = extraction.skipped.clone();
+    world.ag_extraction = Some(extraction);
+}
+
+fn extracted(world: &BotSpyWorld, id: &str) -> botspy::Session {
+    world
+        .ag_source
+        .as_ref()
+        .expect("no Antigravity source")
+        .extract(id)
+        .expect("no transcript for the conversation")
+        .session
+}
+
+#[then(
+    regex = r#"^session "([^"]+)" has the project "([^"]+)", the title "([^"]+)" and a last activity in RFC 3339 shape$"#
+)]
+fn summary_fields(world: &mut BotSpyWorld, id: String, project: String, title: String) {
+    let summary = world
+        .discovered
+        .iter()
+        .find(|summary| summary.id == id)
+        .expect("session not discovered");
+    assert_eq!(summary.project_id, project);
+    assert_eq!(summary.metadata.title.as_deref(), Some(title.as_str()));
+    assert_eq!(summary.last_activity_at, "2026-10-01T09:00:00.123456+00:00");
+}
+
+#[then(
+    regex = r#"^the session is spawned by "([^"]+)" as a "([^"]+)" sub-agent at nesting depth ([0-9]+)$"#
+)]
+fn spawned_by(world: &mut BotSpyWorld, parent: String, kind: String, depth: u64) {
+    let session = &world
+        .ag_extraction
+        .as_ref()
+        .expect("no Antigravity extraction")
+        .session;
+    assert_eq!(session.parent_id.as_deref(), Some(parent.as_str()));
+    let info = session.subagent.as_ref().expect("no sub-agent info");
+    assert_eq!(info.kind, kind);
+    assert_eq!(info.nesting_depth, Some(depth));
+}
+
+#[then(regex = r#"^extracting "([^"]+)" names its sub-agent kind "([^"]+)"$"#)]
+fn unnamed_subagent_kind(world: &mut BotSpyWorld, id: String, kind: String) {
+    let session = extracted(world, &id);
+    assert_eq!(session.subagent.expect("no sub-agent info").kind, kind);
+}
+
+#[then(regex = r#"^extracting "([^"]+)" gives a session with no parent and no sub-agent info$"#)]
+fn root_has_no_parent(world: &mut BotSpyWorld, id: String) {
+    let session = extracted(world, &id);
+    assert_eq!(session.parent_id, None);
+    assert_eq!(session.subagent, None);
+}
+
+#[then(regex = r#"^extracting "([^"]+)" gives the project "([^"]+)" and no parent$"#)]
+fn old_schema_project(world: &mut BotSpyWorld, id: String, project: String) {
+    let session = extracted(world, &id);
+    assert_eq!(session.project_id, project);
+    assert_eq!(session.parent_id, None);
+}
+
+#[then(regex = r#"^the roles are user, assistant, tool, system, system and assistant$"#)]
+fn current_roles(world: &mut BotSpyWorld) {
+    use botspy::Role::*;
+    let roles: Vec<botspy::Role> = world
+        .ag_extraction
+        .as_ref()
+        .expect("no Antigravity extraction")
+        .session
+        .messages
+        .iter()
+        .map(|message| message.role)
+        .collect();
+    assert_eq!(roles, [User, Assistant, Tool, System, System, Assistant]);
+}
+
+#[then(regex = r#"^every message carries the record's "created_at" timestamp$"#)]
+fn timestamps_land(world: &mut BotSpyWorld) {
+    let messages = &world
+        .ag_extraction
+        .as_ref()
+        .expect("no Antigravity extraction")
+        .session
+        .messages;
+    for (step, message) in messages.iter().enumerate() {
+        assert_eq!(
+            message.timestamp.as_deref(),
+            Some(format!("2026-10-01T09:00:0{step}Z").as_str())
+        );
+    }
+}
+
+#[then(regex = r#"^the planner step holds its thinking and its tool call$"#)]
+fn planner_thinking_and_tool_call(world: &mut BotSpyWorld) {
+    let planner = &world
+        .ag_extraction
+        .as_ref()
+        .expect("no Antigravity extraction")
+        .session
+        .messages[1];
+    assert!(matches!(
+        planner.parts.as_slice(),
+        [
+            botspy::Part::Known(botspy::KnownPart::Thinking { .. }),
+            botspy::Part::Known(botspy::KnownPart::ToolCall { name, .. })
+        ] if name == "run"
+    ));
+}
+
+#[then(regex = r#"^the error step holds the record's error text and is an error$"#)]
+fn error_step_text(world: &mut BotSpyWorld) {
+    let error = &world
+        .ag_extraction
+        .as_ref()
+        .expect("no Antigravity extraction")
+        .session
+        .messages[4];
+    assert!(error.is_error);
+    assert!(matches!(
+        error.parts.first(),
+        Some(botspy::Part::Known(botspy::KnownPart::Text { text, .. })) if text == "boom"
+    ));
+}
+
+#[then(regex = r#"^the checkpoint step is a compaction summary$"#)]
+fn checkpoint_step(world: &mut BotSpyWorld) {
+    let messages = &world
+        .ag_extraction
+        .as_ref()
+        .expect("no Antigravity extraction")
+        .session
+        .messages;
+    assert!(messages[5].is_compaction_summary);
+}

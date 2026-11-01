@@ -91,7 +91,7 @@ impl ThreadRow {
 
 /// Format an epoch-milliseconds instant as RFC3339 UTC (second
 /// precision). Non-positive instants map to the empty timestamp.
-fn rfc3339_utc(epoch_ms: i64) -> String {
+pub(crate) fn rfc3339_utc(epoch_ms: i64) -> String {
     if epoch_ms <= 0 {
         return String::new();
     }

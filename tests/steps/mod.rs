@@ -119,6 +119,13 @@ pub struct BotSpyWorld {
     pub cur_cli_source: Option<botspy::adapters::cursor::CursorCliSource>,
     /// Result of the most recent Cursor CLI discovery.
     pub cur_cli_discovery: Option<botspy::adapters::cursor::CursorCliDiscovery>,
+    /// Result of the most recent Cursor CLI extraction.
+    pub cur_cli_extraction: Option<botspy::adapters::cursor::CursorCliExtraction>,
+    /// The data root holding the Cursor CLI projects, laid out the way the
+    /// examples read it (`cursor/cli/projects`).
+    pub cur_data_root: Option<std::path::PathBuf>,
+    /// The Cursor store path most recently resolved for a platform.
+    pub cur_store_resolved: Option<std::path::PathBuf>,
     /// The live app writer holding the fixture Cursor KV store.
     pub cur_writer: Option<rusqlite::Connection>,
     /// Digest of the store + WAL before the snapshot read.

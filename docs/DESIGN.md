@@ -56,7 +56,7 @@ flowchart LR
     subgraph SOURCES["On-disk agent histories (read-only)"]
         CC["Claude Code<br/>~/.claude/projects JSONL transcripts + subagent sidechains"]
         CX["Codex<br/>~/.codex/sessions rollouts + state_5.sqlite / thread_history_1.sqlite indexes"]
-        CU["Cursor<br/>~/.cursor state.vscdb (hot WAL) + agent-transcripts"]
+        CU["Cursor<br/>state.vscdb (hot WAL, app-data dir) + ~/.cursor agent-transcripts"]
         GB["Grok Bot<br/>~/.grok/sand-client-persistence entry logs + roster.json / cloud-agents.json"]
         AG["Antigravity<br/>~/.gemini/antigravity conversation_summaries.db + brain transcripts + payload DBs"]
     end

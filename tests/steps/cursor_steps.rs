@@ -455,3 +455,245 @@ fn live_app_keeps_writing(world: &mut BotSpyWorld) {
         .expect("count bubbles") as u64;
     assert_eq!(bubbles, 2, "the appended bubble is missing from the store");
 }
+
+// ── CLI layouts, sub-agents, platform store paths ───────────────────────────
+
+const NESTED_RECORDS: &str = concat!(
+    r#"{"role":"user","message":{"content":[{"type":"text","text":"hello"}]}}"#,
+    "\n",
+    r#"{"role":"assistant","message":{"content":[{"type":"text","text":"On it."},{"type":"tool_use","name":"Shell","input":{"command":"ls"}}]}}"#,
+    "\n",
+    r#"{"type":"turn","status":"done"}"#,
+    "\n",
+);
+
+/// A data root laid out the way the examples read it, with the Cursor CLI
+/// projects under `cursor/cli/projects`.
+fn new_cli_data_root(world: &mut BotSpyWorld) -> PathBuf {
+    let data = new_root(world);
+    let projects = data.join("cursor/cli/projects");
+    std::fs::create_dir_all(&projects).expect("create the projects dir");
+    world.cur_data_root = Some(data);
+    world.cur_cli_root = Some(projects.clone());
+    world.cur_cli_source = Some(CursorCliSource::new(&projects));
+    projects
+}
+
+#[given(regex = r#"^a Cursor projects directory with the flat CLI transcript "([^"]+)"$"#)]
+fn projects_dir_with_flat_transcript(world: &mut BotSpyWorld, name: String) {
+    let projects = new_cli_data_root(world);
+    let dir = projects.join("proj-a").join("agent-transcripts");
+    std::fs::create_dir_all(&dir).expect("create agent-transcripts dir");
+    std::fs::write(
+        dir.join(name),
+        "{\"role\":\"user\",\"text\":\"hello from the CLI\"}\n{\"role\":\"assistant\",\"text\":\"On it.\",\"thinking\":\"planning\"}\n",
+    )
+    .expect("write the flat transcript");
+}
+
+#[given(
+    regex = r#"^a Cursor projects directory with the nested CLI session "([^"]+)" and its sub-agents "([^"]+)" and "([^"]+)"$"#
+)]
+fn projects_dir_with_nested_session(
+    world: &mut BotSpyWorld,
+    session: String,
+    first: String,
+    second: String,
+) {
+    let projects = new_cli_data_root(world);
+    let dir = projects
+        .join("proj-a")
+        .join("agent-transcripts")
+        .join(&session);
+    std::fs::create_dir_all(dir.join("subagents")).expect("create the session dir");
+    std::fs::write(dir.join(format!("{session}.jsonl")), NESTED_RECORDS)
+        .expect("write the session transcript");
+    for agent in [first, second] {
+        std::fs::write(
+            dir.join("subagents").join(format!("{agent}.jsonl")),
+            NESTED_RECORDS,
+        )
+        .expect("write the sub-agent transcript");
+    }
+}
+
+fn cli_source(world: &BotSpyWorld) -> &CursorCliSource {
+    world.cur_cli_source.as_ref().expect("no Cursor CLI source")
+}
+
+#[when(regex = r#"^the Cursor importer extracts "([^"]+)"$"#)]
+fn extract_cli_session(world: &mut BotSpyWorld, id: String) {
+    let extraction = cli_source(world)
+        .extract(&id)
+        .expect("no CLI transcript for the id");
+    world.skipped = extraction.skipped.clone();
+    world.cur_cli_extraction = Some(extraction);
+}
+
+#[when(
+    regex = r#"^the default Cursor store is resolved for "([^"]+)" under the home "([^"]+)" with application data "([^"]*)"$"#
+)]
+fn resolve_default_store(world: &mut BotSpyWorld, platform: String, home: String, appdata: String) {
+    let appdata = (!appdata.is_empty()).then(|| PathBuf::from(appdata));
+    world.cur_store_resolved = Some(botspy::cli::cursor_store_path(
+        std::path::Path::new(&home),
+        &platform,
+        appdata.as_deref(),
+    ));
+}
+
+#[then(regex = r#"^extracting "([^"]+)" maps ([0-9]+) messages with the flat record shape$"#)]
+fn flat_shape_maps(world: &mut BotSpyWorld, id: String, count: usize) {
+    let extraction = cli_source(world).extract(&id).expect("no CLI transcript");
+    assert_eq!(extraction.good, count);
+    assert!(matches!(
+        extraction.session.messages[1].parts.get(1),
+        Some(botspy::Part::Known(botspy::KnownPart::Thinking { .. }))
+    ));
+}
+
+#[then(regex = r#"^discovery counts ([0-9]+) transcripts? and ([0-9]+) sub-agents?$"#)]
+fn cli_discovery_counts(world: &mut BotSpyWorld, transcripts: usize, subagents: usize) {
+    let discovery = world
+        .cur_cli_discovery
+        .as_ref()
+        .expect("no Cursor CLI discovery");
+    assert_eq!(discovery.transcripts, transcripts);
+    assert_eq!(discovery.subagents, subagents);
+}
+
+#[then(regex = r#"^the session ids are "([^"]+)", "([^"]+)" and "([^"]+)"$"#)]
+fn cli_session_ids(world: &mut BotSpyWorld, first: String, second: String, third: String) {
+    let ids: Vec<&str> = world.discovered.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids, [first.as_str(), second.as_str(), third.as_str()]);
+}
+
+#[then(regex = r#"^the session is spawned by "([^"]+)" as a "([^"]+)"$"#)]
+fn cli_spawned_by(world: &mut BotSpyWorld, parent: String, kind: String) {
+    let session = &world
+        .cur_cli_extraction
+        .as_ref()
+        .expect("no CLI extraction")
+        .session;
+    assert_eq!(session.parent_id.as_deref(), Some(parent.as_str()));
+    assert_eq!(
+        session.subagent.as_ref().expect("sub-agent info").kind,
+        kind
+    );
+}
+
+#[then(
+    regex = r#"^extracting the CLI session "([^"]+)" gives a session with no parent and no sub-agent info$"#
+)]
+fn cli_root_has_no_parent(world: &mut BotSpyWorld, id: String) {
+    let session = cli_source(world)
+        .extract(&id)
+        .expect("no transcript")
+        .session;
+    assert_eq!(session.parent_id, None);
+    assert_eq!(session.subagent, None);
+}
+
+fn cli_messages(world: &BotSpyWorld) -> &[botspy::Message] {
+    &world
+        .cur_cli_extraction
+        .as_ref()
+        .expect("no CLI extraction")
+        .session
+        .messages
+}
+
+#[then(regex = r#"^the user record is a user text message$"#)]
+fn cli_user_record(world: &mut BotSpyWorld) {
+    let message = &cli_messages(world)[0];
+    assert_eq!(message.role, botspy::Role::User);
+    assert!(matches!(
+        message.parts.as_slice(),
+        [botspy::Part::Known(botspy::KnownPart::Text { text, .. })] if text == "hello"
+    ));
+}
+
+#[then(regex = r#"^the assistant record holds its text and a "([^"]+)" tool call$"#)]
+fn cli_assistant_record(world: &mut BotSpyWorld, tool: String) {
+    let message = &cli_messages(world)[1];
+    assert_eq!(message.role, botspy::Role::Assistant);
+    assert!(matches!(
+        message.parts.as_slice(),
+        [
+            botspy::Part::Known(botspy::KnownPart::Text { .. }),
+            botspy::Part::Known(botspy::KnownPart::ToolCall { name, .. })
+        ] if *name == tool
+    ));
+}
+
+#[then(regex = r#"^the status record is skipped as not part of the conversation$"#)]
+fn cli_status_skipped(world: &mut BotSpyWorld) {
+    let extraction = world
+        .cur_cli_extraction
+        .as_ref()
+        .expect("no CLI extraction");
+    assert_eq!(extraction.good, 2);
+    assert_eq!(extraction.skipped.unknown, 1);
+}
+
+#[then(regex = r#"^no message has a timestamp$"#)]
+fn cli_no_timestamps(world: &mut BotSpyWorld) {
+    assert!(cli_messages(world)
+        .iter()
+        .all(|message| message.timestamp.is_none()));
+}
+
+#[then(
+    regex = r#"^the CLI session records the file modification time outside message timestamps$"#
+)]
+fn cli_mtime_recorded(world: &mut BotSpyWorld) {
+    let session = &world
+        .cur_cli_extraction
+        .as_ref()
+        .expect("no CLI extraction")
+        .session;
+    let mtime = session
+        .file_modified_at
+        .as_deref()
+        .expect("the file modification time was not recorded");
+    assert!(mtime.starts_with("20") && mtime.ends_with('Z'), "{mtime}");
+    assert!(session.messages.iter().all(|m| m.timestamp.is_none()));
+    assert!(session.started_at.is_empty());
+}
+
+#[then(regex = r#"^the store path is "([^"]+)"$"#)]
+fn resolved_store_path(world: &mut BotSpyWorld, expected: String) {
+    let actual = world
+        .cur_store_resolved
+        .as_ref()
+        .expect("no store path resolved");
+    assert_eq!(actual, &PathBuf::from(expected));
+}
+
+#[given(
+    regex = r#"^a Cursor KV store whose composer headers live in the "composerHeaders" table with ([0-9]+) composers$"#
+)]
+fn kv_store_with_headers_table(world: &mut BotSpyWorld, count: usize) {
+    let base = new_root(world);
+    let store = base.join("state.vscdb");
+    let conn = open_store(&store);
+    conn.execute(
+        "CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, \
+         createdAt INTEGER, lastUpdatedAt INTEGER, isSubagent INTEGER, value TEXT)",
+        [],
+    )
+    .expect("create the composerHeaders table");
+    for i in 1..=count {
+        conn.execute(
+            "INSERT INTO composerHeaders VALUES (?1, 'ws', ?2, NULL, 0, ?3)",
+            rusqlite::params![
+                format!("composer-{i}"),
+                1000 + i as i64,
+                json!({"composerId": format!("composer-{i}"), "name": "demo"}).to_string()
+            ],
+        )
+        .expect("insert a header row");
+    }
+    world.cur_store = Some(store.clone());
+    world.cur_source = Some(CursorSource::new(&store));
+}
