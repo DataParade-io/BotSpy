@@ -8,6 +8,7 @@ pub mod cli_steps;
 pub mod codex_steps;
 pub mod compaction_steps;
 pub mod cursor_steps;
+pub mod cursor_workspace_steps;
 pub mod examples_steps;
 pub mod graph_steps;
 pub mod grok_steps;
@@ -170,6 +171,8 @@ pub struct BotSpyWorld {
     pub privacy: privacy_steps::PrivacyState,
     /// State of the timeline-example scenarios.
     pub timeline: timeline_steps::TimelineState,
+    /// State of the Cursor workspace-grouping scenarios.
+    pub cursor_ws: cursor_workspace_steps::WorkspaceState,
     /// Sources of the example consumers, for the public-API checks.
     pub example_sources: Option<String>,
     /// Fixture home the CLI steps laid out for the current scenario.
