@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- *(adapters)* mark harness-injected user messages so they are not the human's ([#48](https://github.com/DataParade-io/BotSpy/pull/48))
+- *(adapters)* record each session's working directory so projects are named by folder ([#47](https://github.com/DataParade-io/BotSpy/pull/47))
 - *(cursor)* group IDE sessions by workspace, never by title ([#42](https://github.com/DataParade-io/BotSpy/pull/42))
 - *(cursor)* reuse one store snapshot while the store is unchanged
 - *(adapters)* read current Antigravity and Cursor layouts
@@ -35,7 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(examples)* timeline idle detection and labels on real histories
 - *(examples)* run the LeftBlock stub through the test runner under cross
 - *(examples)* make the planted demo values match real scanner formats
-
 
 ## [0.3.0](https://github.com/DataParade-io/BotSpy/compare/v0.2.1...v0.3.0) - 2026-10-05
 
