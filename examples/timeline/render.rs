@@ -486,6 +486,26 @@ const ALL_AGENTS: [Agent; 5] = [
     Agent::Antigravity,
 ];
 
+/// A sub-agent kind as a label: agents spell the same kind differently
+/// ("general-purpose", "GeneralPurpose", "general_purpose"), so each is
+/// written as hyphenated words with a capital first letter.
+fn kind_label(kind: &str) -> String {
+    let mut words = String::new();
+    let mut previous: Option<char> = None;
+    for c in kind.chars() {
+        if c == '_' || c == ' ' {
+            words.push('-');
+        } else {
+            if c.is_uppercase() && previous.is_some_and(char::is_lowercase) {
+                words.push('-');
+            }
+            words.extend(c.to_lowercase());
+        }
+        previous = Some(c);
+    }
+    capitalised(&words)
+}
+
 fn capitalised(text: &str) -> String {
     let mut chars = text.chars();
     match chars.next() {
@@ -509,7 +529,7 @@ fn subagent_short_id(id: &str) -> String {
 /// `ids` the name is the kind or agent alone.
 fn session_name(session: &Session, ids: bool) -> String {
     let name = match &session.subagent {
-        Some(info) => capitalised(&info.kind),
+        Some(info) => kind_label(&info.kind),
         None => agent_label(session.agent).to_string(),
     };
     if !ids {
@@ -525,12 +545,12 @@ fn session_name(session: &Session, ids: bool) -> String {
 /// sub-agent kind is cut, never its id, so sibling lanes stay distinct.
 fn lane_label_text(session: &Session, ids: bool) -> String {
     match &session.subagent {
-        Some(info) if !ids => format!("↳ {}", truncate(&capitalised(&info.kind), 18)),
+        Some(info) if !ids => format!("↳ {}", truncate(&kind_label(&info.kind), 18)),
         Some(info) => {
             let id = subagent_short_id(&session.id);
             // "↳ " + kind + " " + id fits the 20-character label.
             let room = 20usize.saturating_sub(3 + id.chars().count());
-            format!("↳ {} {id}", truncate(&capitalised(&info.kind), room))
+            format!("↳ {} {id}", truncate(&kind_label(&info.kind), room))
         }
         None => truncate(&session_name(session, ids), 20),
     }
@@ -673,7 +693,11 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
     let y_max = f64::from(series.peak.max(1));
     let y = |count: u32| base - f64::from(count) / y_max * (CHART_H - 14.0);
 
-    let mut rows: BTreeMap<&str, f64> = BTreeMap::new();
+    // Rows are keyed by the session itself, not its id: two sources can
+    // report the same id (Cursor's IDE store and CLI transcripts do), and
+    // each still gets its own row. Parents are looked up by id, first wins.
+    let mut rows: HashMap<*const Session, f64> = HashMap::new();
+    let mut rows_by_id: BTreeMap<&str, f64> = BTreeMap::new();
     let mut cursor = base + 34.0;
     let mut group_tops: Vec<f64> = Vec::new();
     for (_, group) in &groups {
@@ -685,7 +709,8 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
             } else {
                 ROW_H
             };
-            rows.insert(lane.session.id.as_str(), cursor);
+            rows.insert(std::ptr::from_ref(lane.session), cursor);
+            rows_by_id.entry(lane.session.id.as_str()).or_insert(cursor);
             cursor += height;
         }
         cursor += 6.0;
@@ -772,7 +797,7 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
         );
         for lane in group {
             let session = lane.session;
-            let top = rows[session.id.as_str()];
+            let top = rows[&std::ptr::from_ref(session)];
             let row_h = if lane.missing_parent.is_some() {
                 NOTE_ROW_H
             } else {
@@ -934,8 +959,10 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
         let Some(parent_id) = lane.session.parent_id.as_deref() else {
             continue;
         };
-        let (Some(from), Some(to)) = (rows.get(parent_id), rows.get(lane.session.id.as_str()))
-        else {
+        let (Some(from), Some(to)) = (
+            rows_by_id.get(parent_id),
+            rows.get(&std::ptr::from_ref(lane.session)),
+        ) else {
             continue;
         };
         let sx = x(lane.start());

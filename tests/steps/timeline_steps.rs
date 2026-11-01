@@ -1362,6 +1362,30 @@ fn subagent_session(world: &mut BotSpyWorld, id: String, kind: String, parent: S
     add(world, child);
 }
 
+#[given(regex = r#"^two sources report sessions with the same id "([^"]+)"$"#)]
+fn sessions_sharing_an_id(world: &mut BotSpyWorld, id: String) {
+    add(
+        world,
+        session_at(&id, "alpha", DAY, &every_five("09:00", "09:40")),
+    );
+    add(
+        world,
+        session_at(&id, "alpha", DAY, &every_five("10:00", "10:40")),
+    );
+}
+
+#[then(regex = r#"^each of the ([0-9]+) lanes is drawn on a row of its own$"#)]
+fn lanes_on_their_own_rows(world: &mut BotSpyWorld, count: usize) {
+    let page = html(world);
+    let rows: Vec<String> = tags(page, "<rect class=\"lane-bg\"")
+        .iter()
+        .filter_map(|tag| attr(tag, "y"))
+        .collect();
+    assert_eq!(rows.len(), count, "lanes drawn");
+    let distinct: std::collections::BTreeSet<&String> = rows.iter().collect();
+    assert_eq!(distinct.len(), count, "two lanes share a row: {rows:?}");
+}
+
 fn label_of(world: &BotSpyWorld, id: &str) -> String {
     let views = lanes(html(world));
     let block = &lane(&views, id).block;
