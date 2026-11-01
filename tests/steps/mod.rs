@@ -109,6 +109,8 @@ pub struct BotSpyWorld {
     pub cur_source: Option<botspy::adapters::cursor::CursorSource>,
     /// Composer id the current Cursor fixture extracts.
     pub cur_composer: Option<String>,
+    /// Snapshot copy directory observed for the Cursor source.
+    pub cur_snapshot_dir: Option<std::path::PathBuf>,
     /// Result of the most recent Cursor KV discovery.
     pub cur_discovery: Option<botspy::adapters::cursor::CursorDiscovery>,
     /// Result of the most recent Cursor composer extraction.

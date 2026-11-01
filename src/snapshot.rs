@@ -135,6 +135,11 @@ impl SnapshotConnection {
         Self::in_directory(source, directory)
     }
 
+    /// The private directory holding this copy.
+    pub(crate) fn directory(&self) -> &Path {
+        self._directory.path()
+    }
+
     fn in_directory(source: &Path, directory: tempfile::TempDir) -> Result<Self, SnapshotError> {
         let path = snapshot_sqlite(source, directory.path())?;
         let connection =

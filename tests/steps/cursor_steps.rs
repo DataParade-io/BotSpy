@@ -697,3 +697,86 @@ fn kv_store_with_headers_table(world: &mut BotSpyWorld, count: usize) {
     world.cur_store = Some(store.clone());
     world.cur_source = Some(CursorSource::new(&store));
 }
+
+#[when(regex = r#"^the Cursor importer discovers every composer and extracts each one$"#)]
+fn discover_and_extract_all(world: &mut BotSpyWorld) {
+    let source = world.cur_source.as_ref().expect("no Cursor source");
+    let (summaries, _) = source.discover();
+    for summary in &summaries {
+        source
+            .extract(&summary.id)
+            .expect("composer should extract");
+    }
+    world.cur_snapshot_dir = source.snapshot_directory();
+    world.discovered = summaries;
+}
+
+#[when(regex = r#"^the app adds a bubble to composer "([^"]+)"$"#)]
+fn app_adds_bubble(world: &mut BotSpyWorld, composer_id: String) {
+    let store = world.cur_store.clone().expect("no Cursor KV store");
+    // Remember the copy the source holds before the store changes.
+    world.cur_snapshot_dir = world
+        .cur_source
+        .as_ref()
+        .and_then(CursorSource::snapshot_directory);
+    let writer = open_store(&store);
+    put_value(
+        &writer,
+        &format!("bubbleId:{composer_id}:b2"),
+        &user_bubble("fresh bubble"),
+    );
+    put_value(
+        &writer,
+        &format!("composerData:{composer_id}"),
+        &composer_data(&["b1", "b2"], "demo"),
+    );
+}
+
+#[when(regex = r#"^the Cursor importer extracts composer "([^"]+)"$"#)]
+fn extract_named_composer(world: &mut BotSpyWorld, composer_id: String) {
+    let source = world.cur_source.as_ref().expect("no Cursor source");
+    world.cur_extraction = Some(source.extract(&composer_id).expect("composer data"));
+}
+
+#[when(regex = r#"^the Cursor source is dropped$"#)]
+fn drop_source(world: &mut BotSpyWorld) {
+    world.cur_snapshot_dir = world
+        .cur_source
+        .as_ref()
+        .and_then(CursorSource::snapshot_directory);
+    world.cur_source = None;
+}
+
+#[then(regex = r#"^the Cursor source has taken ([0-9]+) snapshot cop(?:y|ies)$"#)]
+fn snapshot_copies_taken(world: &mut BotSpyWorld, count: usize) {
+    let source = world.cur_source.as_ref().expect("no Cursor source");
+    assert_eq!(source.snapshots_taken(), count);
+}
+
+#[then(regex = r#"^the extraction holds ([0-9]+) messages$"#)]
+fn extraction_holds_messages(world: &mut BotSpyWorld, count: usize) {
+    let extraction = world.cur_extraction.as_ref().expect("no extraction");
+    assert_eq!(extraction.good, count);
+}
+
+#[then(regex = r#"^the first snapshot copy no longer exists and one copy remains$"#)]
+fn first_copy_replaced(world: &mut BotSpyWorld) {
+    let first = world.cur_snapshot_dir.clone().expect("no first copy");
+    let source = world.cur_source.as_ref().expect("no Cursor source");
+    let current = source.snapshot_directory().expect("no current copy");
+    assert_ne!(first, current);
+    assert!(!first.exists(), "the stale copy must be removed");
+    assert!(current.exists());
+}
+
+#[then(regex = r#"^a snapshot copy exists$"#)]
+fn a_copy_exists(world: &mut BotSpyWorld) {
+    let dir = world.cur_snapshot_dir.clone().expect("no snapshot copy");
+    assert!(dir.join("snapshot.db").exists());
+}
+
+#[then(regex = r#"^the snapshot copy has been removed$"#)]
+fn the_copy_is_removed(world: &mut BotSpyWorld) {
+    let dir = world.cur_snapshot_dir.clone().expect("no snapshot copy");
+    assert!(!dir.exists(), "dropping the source must remove its copy");
+}
