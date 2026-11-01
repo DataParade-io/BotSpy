@@ -845,7 +845,14 @@ fn cli_session_from_missing_folder(world: &mut BotSpyWorld, session: String) {
 
 fn cwd_matches_real_folder(cwd: Option<&str>, world: &BotSpyWorld) {
     let real = world.cur_real_folder.as_ref().expect("no real folder");
-    assert_eq!(cwd, real.to_str());
+    // Compare as paths: a folder given as "dev.tools/app" is spelled with
+    // the platform's own separator once resolved.
+    let cwd = cwd.expect("no working directory");
+    assert!(
+        std::path::Path::new(cwd).components().eq(real.components()),
+        "{cwd} is not {}",
+        real.display()
+    );
 }
 
 #[then(regex = r#"^the discovered CLI session "([^"]+)" is in the real folder$"#)]
