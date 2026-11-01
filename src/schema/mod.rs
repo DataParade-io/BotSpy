@@ -435,6 +435,10 @@ pub enum Origin {
     /// Cursor `isSimulatedMsg`: user content injected by tooling, not typed
     /// by a human.
     Simulated,
+    /// Text the agent harness injected under the user role: skill bodies,
+    /// injected context, notifications, hook output, summaries of an earlier
+    /// conversation, interruption markers. The human did not type it.
+    Harness,
 }
 
 impl Origin {
@@ -443,6 +447,7 @@ impl Origin {
             "developer" => Some(Self::Developer),
             "agent_message" => Some(Self::AgentMessage),
             "simulated" => Some(Self::Simulated),
+            "harness" => Some(Self::Harness),
             _ => None,
         }
     }

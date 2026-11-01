@@ -15,6 +15,7 @@ pub mod grok_steps;
 pub mod importer_steps;
 pub mod inline_steps;
 pub mod leftblock_stub;
+pub mod message_origin_steps;
 pub mod metadata_steps;
 pub mod meter_steps;
 pub mod privacy_steps;

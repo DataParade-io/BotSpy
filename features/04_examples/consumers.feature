@@ -49,6 +49,60 @@ Feature: Example consumers of the unified history
     When the meter scores the session
     Then it reports 0 thanks and 0 F-bombs
 
+  Scenario Outline: Claude Code text the harness injected does not count
+    Claude Code stores skill bodies, summaries, notifications, hook output
+    and mail from other sessions under the user role. The importer marks
+    each, and the meter skips them, even when they carry thanks and F-bombs.
+    Given a Claude Code session where I typed "thanks, that fixed it" and the harness injected a record marked "<mark>" led by "<lead>"
+    When the meter scores the session
+    Then it reports 1 thanks and 0 F-bombs
+
+    Examples:
+      | mark                     | lead                          |
+      | isMeta                   | Base directory for this skill |
+      | isCompactSummary         | A summary of the work         |
+      | origin:task-notification | A task finished               |
+      | origin:peer              | A note from another session   |
+      | none                     | <system-reminder>             |
+      | none                     | <task-notification>           |
+      | none                     | <wake>                        |
+      | none                     | <command-name>                |
+      | none                     | <local-command-stdout>        |
+      | none                     | <cross-session-message>       |
+      | none                     | This session is being continued from a previous conversation |
+      | none                     | [Request interrupted by user] |
+
+  Scenario Outline: Text pasted into Claude Code still counts
+    Pasted text and shell input are the human's own input.
+    Given a Claude Code session where I typed "thanks, that fixed it" and the harness injected a record marked "none" led by "<lead>"
+    When the meter scores the session
+    Then it reports 2 thanks and 1 F-bombs
+
+    Examples:
+      | lead               |
+      | <pasted_content>   |
+      | <bash-input>       |
+
+  Scenario: Codex environment and instructions blocks do not count
+    Given a Codex session where I typed "thanks, that fixed it" and the harness injected the user message led by "<environment_context>"
+    When the meter scores the session
+    Then it reports 1 thanks and 0 F-bombs
+
+  Scenario: Codex AGENTS.md instructions do not count
+    Given a Codex session where I typed "thanks, that fixed it" and the harness injected the user message led by "# AGENTS.md instructions for /repo"
+    When the meter scores the session
+    Then it reports 1 thanks and 0 F-bombs
+
+  Scenario: Cursor CLI context records do not count, and the typed query does
+    Given a Cursor CLI session where I typed "thanks, that fixed it" and the harness injected the user record led by "<dynamic_tools>"
+    When the meter scores the session
+    Then it reports 1 thanks and 0 F-bombs
+
+  Scenario: Cursor IDE simulated bubbles do not count
+    Given a Cursor session where I typed "thanks, that fixed it" and Cursor simulated a user bubble carrying thanks and an F-bomb
+    When the meter scores the session
+    Then it reports 1 thanks and 0 F-bombs
+
   Scenario: A sub-agent's prompts do not count
     The "user" messages of a sub-agent are prompts the parent agent wrote.
     Given a sub-agent session where the parent agent prompted "thanks, now check the build"

@@ -11,7 +11,8 @@
 //! unknown record types with counters. The source tree is only ever read.
 
 use crate::schema::{
-    Agent, KnownPart, Message, Part, Provenance, Role, SessionCost, SubagentInfo, ToolArguments,
+    Agent, KnownPart, Message, Origin, Part, Provenance, Role, SessionCost, SubagentInfo,
+    ToolArguments,
 };
 use crate::session::SessionSummary;
 use serde_json::Value;
@@ -352,10 +353,20 @@ impl ClaudeCodeSource {
             "assistant" => Role::Assistant,
             _ => Role::System,
         };
+        let is_compact_summary = record
+            .get("isCompactSummary")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let origin = if ty == "user" {
+            harness_origin(record, &parts)
+        } else {
+            None
+        };
         let mut message = Message {
             role,
             parts,
-            is_compaction_summary: ty == "summary",
+            origin,
+            is_compaction_summary: ty == "summary" || is_compact_summary,
             ..Message::default()
         };
         message.timestamp = record
@@ -379,6 +390,92 @@ impl ClaudeCodeSource {
         });
         Some(Ok(message))
     }
+}
+
+/// Tags that only the harness writes at the start of a user-role text. The
+/// list is explicit on purpose: `<pasted_content>` and `<bash-input>` are
+/// the human's own input and a broad "starts with <" rule would drop them.
+const HARNESS_TAGS: &[&str] = &[
+    "task-notification",
+    "system-reminder",
+    "wake",
+    "project_claude_message",
+    "ci-monitor-event",
+    "relay",
+    "artifact-view-context",
+    "create-pr-command",
+    "command-name",
+    "command-message",
+    "command-args",
+    "local-command-stdout",
+    "local-command-stderr",
+    "local-command-caveat",
+    "cross-session-message",
+];
+
+/// Plain-text openings the harness writes under the user role.
+const HARNESS_PREFIXES: &[&str] = &[
+    "This session is being continued from a previous conversation",
+    "Another Claude session sent a message",
+    "[Request interrupted by user",
+];
+
+/// Whether a user text is led by one of the [`HARNESS_TAGS`] or
+/// [`HARNESS_PREFIXES`].
+fn is_harness_text(text: &str) -> bool {
+    let text = text.trim_start();
+    if HARNESS_PREFIXES
+        .iter()
+        .any(|prefix| text.starts_with(prefix))
+    {
+        return true;
+    }
+    let Some(rest) = text.strip_prefix('<') else {
+        return false;
+    };
+    HARNESS_TAGS.iter().any(|tag| {
+        rest.strip_prefix(tag)
+            .is_some_and(|after| after.starts_with(['>', ' ', '\n', '/']))
+    })
+}
+
+/// The `kind` of a record's `origin` key: `human`, `peer`,
+/// `task-notification` and so on. The key is an object with a `kind`, or a
+/// plain string.
+fn origin_kind(record: &Value) -> Option<&str> {
+    match record.get("origin")? {
+        Value::String(kind) => Some(kind),
+        other => other.get("kind").and_then(Value::as_str).or(Some("")),
+    }
+}
+
+/// The origin of a user record. `None` means the human typed it.
+///
+/// - `origin.kind == "human"` is the human's own message, whatever else
+///   the text looks like.
+/// - `origin.kind == "peer"` is mail from another agent session
+///   ([`Origin::AgentMessage`]).
+/// - Any other `origin` key, a record flagged `isMeta` or
+///   `isCompactSummary`, and a record whose first text part is harness
+///   text are [`Origin::Harness`].
+fn harness_origin(record: &Value, parts: &[Part]) -> Option<Origin> {
+    let flagged = |key: &str| record.get(key).and_then(Value::as_bool).unwrap_or(false);
+    let kind = origin_kind(record);
+    if kind == Some("human") {
+        return None;
+    }
+    if kind == Some("peer") {
+        return Some(Origin::AgentMessage);
+    }
+    let first_text = parts.iter().find_map(|part| match part {
+        Part::Known(KnownPart::Text { text, .. }) => Some(text.as_str()),
+        _ => None,
+    });
+    (kind.is_some()
+        || flagged("isMeta")
+        || flagged("isCompactSummary")
+        || first_text.is_some_and(is_harness_text))
+    .then_some(Origin::Harness)
 }
 
 /// Marker between the parent session id and the sub-agent file stem's id
@@ -864,5 +961,64 @@ mod tests {
         let second = source.extract("s1").expect("extract again");
         assert_eq!(second.good, 1);
         assert_eq!(second.pending_partial, 0);
+    }
+
+    fn origin_of(extra: &str, text: &str) -> Option<Origin> {
+        let record: Value = serde_json::from_str(&format!(
+            r#"{{"type":"user",{extra}"message":{{"role":"user","content":{}}}}}"#,
+            Value::String(text.to_string())
+        ))
+        .unwrap();
+        let source = ClaudeCodeSource::new("unused");
+        source
+            .normalize_record(&record, Path::new("t.jsonl"), 1)
+            .unwrap()
+            .ok()
+            .unwrap()
+            .origin
+    }
+
+    #[test]
+    fn harness_text_is_marked_and_the_humans_is_not() {
+        let harness = Some(Origin::Harness);
+        assert_eq!(origin_of("", "fix the build"), None);
+        assert_eq!(origin_of(r#""origin":{"kind":"human"},"#, "<wake>x"), None);
+        assert_eq!(origin_of(r#""isMeta":true,"#, "a skill body"), harness);
+        assert_eq!(origin_of(r#""isCompactSummary":true,"#, "summary"), harness);
+        assert_eq!(
+            origin_of(r#""origin":{"kind":"task-notification"},"#, "done"),
+            harness
+        );
+        assert_eq!(
+            origin_of(r#""origin":{"kind":"peer"},"#, "hello"),
+            Some(Origin::AgentMessage)
+        );
+        for tag in HARNESS_TAGS {
+            assert_eq!(
+                origin_of("", &format!("<{tag}>x</{tag}>")),
+                harness,
+                "{tag}"
+            );
+        }
+        for text in HARNESS_PREFIXES {
+            assert_eq!(origin_of("", text), harness, "{text}");
+        }
+        assert_eq!(origin_of("", "<pasted_content>log</pasted_content>"), None);
+        assert_eq!(origin_of("", "<bash-input>ls</bash-input>"), None);
+        assert_eq!(origin_of("", "<wakeful>not a tag</wakeful>"), None);
+    }
+
+    #[test]
+    fn a_compact_summary_flag_sets_the_compaction_marker() {
+        let record: Value = serde_json::from_str(
+            r#"{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"s"}}"#,
+        )
+        .unwrap();
+        let message = ClaudeCodeSource::new("unused")
+            .normalize_record(&record, Path::new("t.jsonl"), 1)
+            .unwrap()
+            .ok()
+            .unwrap();
+        assert!(message.is_compaction_summary);
     }
 }

@@ -40,5 +40,8 @@
     "## Behavior specification\n\n",
     "### codex/adapter.feature\n\n```gherkin\n",
     include_str!("../../../features/03_importers/codex/adapter.feature"),
+    "\n```\n\n",
+    "### codex/message_origin.feature\n\n```gherkin\n",
+    include_str!("../../../features/03_importers/codex/message_origin.feature"),
     "\n```\n"
 )]

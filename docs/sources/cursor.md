@@ -108,6 +108,7 @@ stays unset. The timeline draws the session as a sub-agent. It shows the
 | `toolFormerData` | A `ToolCall` part (name, parsed params) |
 | `toolResultBlob` | A `ToolResult` part (blob hash, container `agentKv:blob`) |
 | empty bubble | Malformed. Skipped and counted |
+| user bubble with `isSimulatedMsg: true` | The message has origin `simulated`. Cursor wrote it, the human did not type it |
 
 ## CLI transcripts
 
@@ -126,6 +127,21 @@ stays unset. The timeline draws the session as a sub-agent. It shows the
    modification time of the transcript file in `file_modified_at`. This
    time is never copied into the message timestamps. The timeline
    example draws such a session as an approximate span.
+
+### Who wrote a CLI user message
+
+A CLI user text holds the human's words inside `<user_query>`, beside
+context that the CLI attached (a `<timestamp>`, open files, skills).
+
+1. When the text has a `<user_query>`, the `Text` part is the query
+   alone. The rest of the text is kept in `extra.context`. The message
+   has no origin.
+2. When the text has no query and holds only a `<timestamp>`, or starts
+   with a tag (examples: `dynamic_tools`, `available_subagent_types`,
+   `cursor_commands`), there are no human words. The message keeps the
+   text and has origin `harness`.
+3. Other text (the older flat transcripts) is the human's and has no
+   origin.
 
 ### Sub-agents
 

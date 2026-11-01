@@ -58,6 +58,32 @@ skipped as unknown.
 | `custom-title` | `metadata.title` |
 | other (example: `file-history-snapshot`) | Skipped and counted |
 
+## Who wrote a user message
+
+Claude Code stores text that the harness wrote under the user role. The
+adapter keeps the role and sets an origin on the message, so a reader can
+tell the human's words from the harness text.
+
+| What the record has | Origin |
+| --- | --- |
+| `origin.kind` is `human` | None. The human typed it, whatever the text looks like |
+| `origin.kind` is `peer` | `agent_message`. It is mail from another agent session |
+| Any other `origin` key (example: `task-notification`) | `harness` |
+| `isMeta: true` (skill bodies, injected context) | `harness` |
+| `isCompactSummary: true` | `harness`, and `is_compaction_summary` |
+| Text that starts with "This session is being continued from a previous conversation", "Another Claude session sent a message", or "[Request interrupted by user" | `harness` |
+| Text that starts with a harness tag (the list below) | `harness` |
+| Anything else | None. The human typed it |
+
+The harness tags are `task-notification`, `system-reminder`, `wake`,
+`project_claude_message`, `ci-monitor-event`, `relay`,
+`artifact-view-context`, `create-pr-command`, `command-name`,
+`command-message`, `command-args`, `local-command-stdout`,
+`local-command-stderr`, `local-command-caveat`, and
+`cross-session-message`. The list is short on purpose. `pasted_content`
+and `bash-input` are the human's own input, so they get no origin. The
+list is the constant `HARNESS_TAGS` in `src/adapters/claude_code.rs`.
+
 ## Report
 
 `ClaudeReport` gives: the root, the project directories, the
