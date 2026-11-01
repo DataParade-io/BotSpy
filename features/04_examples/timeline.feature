@@ -12,6 +12,11 @@ Feature: Parallel sessions timeline
   never have zero length, so a trailing human message with no reply is
   dropped. A session without message timestamps is one span marked
   approximate.
+  The whole figure (title, peak line, short description, legend, concurrency
+  chart, lanes and axis) is one self-contained SVG whose viewBox is exactly
+  the content plus an even 16 px padding, so images for articles have no
+  blank margins. The HTML page embeds that same figure, and the example can
+  also write it as a standalone SVG or rasterize it to a PNG.
   The scenarios generate their sessions at run time and assert on the
   rendered page's structure, text and attributes.
   Evidence: BOTSPY-8739de (parallel sessions timeline epic).
@@ -135,6 +140,76 @@ Feature: Parallel sessions timeline
     When the timeline page is viewed with a dark colour scheme
     Then it uses its dark theme
 
+  Scenario: The figure's viewBox is the content plus an even padding
+    When the timeline figure is drawn with "--demo"
+    Then the viewBox is the content bounds plus the same padding on every side
+    And no element extends past the viewBox
+    And the padding is even: the content touches the figure's edges 16 px in on every side
+
+  Scenario: A figure with a single session is just as tight
+    Given session "a" active from 09:00 to 10:00
+    When the timeline figure is drawn
+    Then the viewBox is the content bounds plus the same padding on every side
+    And no element extends past the viewBox
+    And the padding is even: the content touches the figure's edges 16 px in on every side
+
+  Scenario: The HTML page embeds the one figure and puts no cap on its width
+    When the timeline example renders with "--demo"
+    Then the page embeds the same figure with the title, legend and axis inside it
+    And the page sets no maximum width on the figure
+
+  Scenario: The PNG is the viewBox size at the default scale of 2
+    When I run the timeline example with "--demo" writing a png file
+    Then the timeline example exits with status 0
+    And the output path is printed
+    And the PNG is 2 times the size of the viewBox
+
+  Scenario: The PNG scale can be changed
+    When I run the timeline example with "--demo --scale 3" writing a png file
+    Then the PNG is 3 times the size of the viewBox
+
+  Scenario: The standalone SVG is written to the requested path
+    When I run the timeline example with "--demo" writing a svg file
+    Then the timeline example exits with status 0
+    And the output path is printed
+    And the file is a standalone SVG sized to its viewBox
+
+  Scenario: The figure is light by default
+    When the timeline figure is drawn with "--demo"
+    Then the figure uses the light colours with no variables or media queries
+
+  Scenario: The dark theme gives a dark figure
+    When the timeline figure is drawn with "--demo --theme dark"
+    Then the figure uses the dark colours with no variables or media queries
+
+  Scenario: The PNG follows the light theme
+    When I run the timeline example with "--demo --theme light" writing a png file
+    Then the PNG's background is the light background
+
+  Scenario: The PNG follows the dark theme
+    When I run the timeline example with "--demo --theme dark" writing a png file
+    Then the PNG's background is the dark background
+
+  Scenario: An unknown theme or a bad scale is refused
+    When I run the timeline example with "--demo --theme blue"
+    Then the timeline example exits with status 2
+    And the timeline example reports an error naming "--theme"
+    When I run the timeline example with "--demo --scale 0"
+    Then the timeline example exits with status 2
+    And the timeline example reports an error naming "--scale"
+
+  Scenario: A sub-agent lane is labelled by its kind and its own short id
+    Given a sub-agent session "parent--agent-a3f9c2e1b7" of kind "explore" under session "parent"
+    When the timeline example renders
+    Then the lane "parent--agent-a3f9c2e1b7" is labelled "↳ Explore a3f9c2"
+    And the lane "parent" is labelled "Claude Code parent"
+    And the tooltip of lane "parent--agent-a3f9c2e1b7" holds its full session id and kind
+
+  Scenario: A long sub-agent label is cut to 20 characters
+    Given a sub-agent session "parent--agent-a3f9c2e1b7" of kind "security-review-specialist" under session "parent"
+    When the timeline example renders
+    Then the lane "parent--agent-a3f9c2e1b7" is labelled with at most 20 characters ending in an ellipsis
+
   Scenario: The demo corpus shows parallel work
     When the timeline example renders with "--demo"
     Then the demo shows several projects with overlapping sessions
@@ -147,4 +222,4 @@ Feature: Parallel sessions timeline
     And the output path is printed and holds the page
 
   Scenario: The example uses only the public API
-    Then the timeline example imports only botspy and the standard library
+    Then the timeline example imports only botspy and the standard library, plus resvg for the PNG

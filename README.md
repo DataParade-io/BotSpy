@@ -462,7 +462,15 @@ and legend label, not colour alone, and the page follows light and dark mode.
   <img src="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/timeline.light.png" alt="Timeline of a synthetic demo: agents working at once peaking at 5, and swimlanes for three projects with turns, waiting for you, a fork and sub-agents">
 </picture>
 
-The picture above is rendered from the synthetic `--demo` corpus.
+The picture above is rendered from the synthetic `--demo` corpus. The whole
+figure (title, legend, chart, lanes and axis) is one SVG cut to its content
+plus a 16 px padding, so it has no blank margins. Regenerate the two images
+with the example's own PNG output (pure-Rust `resvg`, 2x by default):
+
+```bash
+cargo run --example timeline -- --demo --theme light --png docs/images/timeline.light.png
+cargo run --example timeline -- --demo --theme dark  --png docs/images/timeline.dark.png
+```
 
 ```bash
 cargo run --example timeline -- --demo            # try it on made-up sessions
@@ -471,7 +479,10 @@ cargo run --example timeline -- --since 2026-10-01T00:00:00Z --project web \
 ```
 
 Flags: `--since`, `--until`, `--project` (substring), `--source`
-(repeatable), `--titles`, `--out PATH` (default `timeline.html`), `--demo`.
+(repeatable), `--titles`, `--out PATH` (the HTML page; default
+`timeline.html` when no other output is asked for), `--svg PATH` (the
+standalone figure), `--png PATH` with `--scale N` (default 2), `--theme
+light|dark` (colours of the SVG and PNG, default light), `--demo`.
 Session titles appear only with `--titles`; message text never appears.
 
 ## Learn more

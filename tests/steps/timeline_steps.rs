@@ -30,6 +30,9 @@ pub struct TimelineState {
     stdout: String,
     out_path: Option<PathBuf>,
     scratch: Option<tempfile::TempDir>,
+    figure: Option<timeline_example::render::Figure>,
+    stderr: String,
+    file_bytes: Vec<u8>,
 }
 
 fn at(day: &str, hhmm: &str) -> String {
@@ -733,12 +736,12 @@ fn legend_names_agents(world: &mut BotSpyWorld) {
     ] {
         let item = tags(
             page,
-            &format!("<li class=\"legend-item\" data-agent=\"{agent}\""),
+            &format!("<g class=\"legend-item\" data-agent=\"{agent}\""),
         );
         assert_eq!(item.len(), 1, "no legend entry for {agent}");
         let start = page.find(&item[0]).expect("legend item");
-        let entry = &page[start..start + page[start..].find("</li>").expect("end")];
-        assert!(entry.contains(&format!("<span>{label}</span>")));
+        let entry = &page[start..start + page[start..].find("</g>").expect("end")];
+        assert!(entry.contains(&format!(">{label}</text>")));
         assert!(entry.contains(&format!("fill=\"url(#pat-{agent})\"")));
         assert!(page.contains(&format!("<pattern id=\"pat-{agent}\"")));
     }
@@ -827,19 +830,30 @@ fn output_path_holds_page(world: &mut BotSpyWorld) {
 
 // ---- sources -----------------------------------------------------------
 
-#[then(regex = r#"^the timeline example imports only botspy and the standard library$"#)]
+#[then(
+    regex = r#"^the timeline example imports only botspy and the standard library, plus resvg for the PNG$"#
+)]
 fn imports_only_botspy_and_std(_world: &mut BotSpyWorld) {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/timeline");
-    for file in ["main.rs", "activity.rs", "render.rs", "demo.rs"] {
+    for file in [
+        "main.rs",
+        "activity.rs",
+        "render.rs",
+        "demo.rs",
+        "raster.rs",
+    ] {
         let source = std::fs::read_to_string(dir.join(file)).expect("example source");
         for import in source
             .lines()
             .map(str::trim_start)
             .filter_map(|line| line.strip_prefix("use "))
         {
-            let allowed = ["std::", "super::", "self::", "common::"]
-                .iter()
-                .any(|root| import.starts_with(root))
+            // resvg rasterizes the PNG, in raster.rs only.
+            let rasterizer = file == "raster.rs" && import.starts_with("resvg::");
+            let allowed = rasterizer
+                || ["std::", "super::", "self::", "common::"]
+                    .iter()
+                    .any(|root| import.starts_with(root))
                 // Only names exported at botspy's root: the public surface.
                 || import.starts_with("botspy::{")
                 || import
@@ -945,4 +959,350 @@ fn lane_waiting_interval(world: &mut BotSpyWorld, from: String, to: String) {
     assert_eq!(lines.len(), 1);
     assert_eq!(attr(&lines[0], "data-start"), Some(at(DAY, &from)));
     assert_eq!(attr(&lines[0], "data-end"), Some(at(DAY, &to)));
+}
+
+// ---- the figure: tight SVG, PNG, themes, sub-agent labels ---------------
+
+fn figure(world: &BotSpyWorld) -> &timeline_example::render::Figure {
+    world.timeline.figure.as_ref().expect("a drawn figure")
+}
+
+fn split_args(options: &str) -> Vec<String> {
+    options.split_whitespace().map(str::to_string).collect()
+}
+
+#[when(regex = r#"^the timeline figure is drawn with "([^"]*)"$"#)]
+fn figure_drawn_with(world: &mut BotSpyWorld, options: String) {
+    let state = &mut world.timeline;
+    let given = (!state.sessions.is_empty()).then(|| state.sessions.clone());
+    state.figure =
+        Some(timeline_example::figure_for(&split_args(&options), given).expect("the figure draws"));
+}
+
+#[when(regex = r#"^the timeline figure is drawn$"#)]
+fn figure_drawn(world: &mut BotSpyWorld) {
+    figure_drawn_with(world, String::new());
+}
+
+/// Run the example with `options` plus the given output flag, in a scratch
+/// directory, and keep what it wrote.
+#[when(regex = r#"^I run the timeline example with "([^"]*)" writing a (svg|png) file$"#)]
+fn run_writing_file(world: &mut BotSpyWorld, options: String, kind: String) {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let path = scratch.path().join(format!("figure.{kind}"));
+    let mut args = split_args(&options);
+    args.push(format!("--{kind}"));
+    args.push(path.display().to_string());
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let state = &mut world.timeline;
+    state.exit = Some(timeline_example::run(&args, &mut out, &mut err));
+    state.stdout = String::from_utf8(out).expect("utf-8 output");
+    state.stderr = String::from_utf8(err).expect("utf-8 errors");
+    state.file_bytes = std::fs::read(&path).unwrap_or_default();
+    state.figure = timeline_example::figure_for(&split_args(&options), None).ok();
+    state.out_path = Some(path);
+    state.scratch = Some(scratch);
+}
+
+#[when(regex = r#"^I run the timeline example with "([^"]*)"$"#)]
+fn run_with_options(world: &mut BotSpyWorld, options: String) {
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let state = &mut world.timeline;
+    state.exit = Some(timeline_example::run(
+        &split_args(&options),
+        &mut out,
+        &mut err,
+    ));
+    state.stderr = String::from_utf8(err).expect("utf-8 errors");
+}
+
+#[then(regex = r#"^the timeline example reports an error naming "([^"]+)"$"#)]
+fn error_names(world: &mut BotSpyWorld, flag: String) {
+    assert!(
+        world.timeline.stderr.contains(&flag),
+        "{}",
+        world.timeline.stderr
+    );
+}
+
+fn view_box_of(svg: &str) -> [f64; 4] {
+    let root = tags(svg, "<svg ").remove(0);
+    let numbers: Vec<f64> = attr(&root, "viewBox")
+        .expect("a viewBox")
+        .split_whitespace()
+        .map(|n| n.parse().expect("number"))
+        .collect();
+    [numbers[0], numbers[1], numbers[2], numbers[3]]
+}
+
+/// The extent `[left, top, right, bottom]` of everything drawn, read back
+/// from the SVG text. A glyph reaches 0.8 of its size above the baseline
+/// and 0.25 below; text width is a 0.58-of-size estimate per character.
+fn drawn_extent(svg: &str) -> [f64; 4] {
+    let drawn = &svg[svg.find("</defs>").expect("defs")..];
+    let num = |tag: &str, name: &str| -> f64 {
+        attr(tag, name)
+            .unwrap_or_else(|| panic!("{name} in {tag}"))
+            .parse()
+            .expect("number")
+    };
+    let mut extent = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    let mut cover = |left: f64, top: f64, right: f64, bottom: f64| {
+        extent[0] = extent[0].min(left);
+        extent[1] = extent[1].min(top);
+        extent[2] = extent[2].max(right);
+        extent[3] = extent[3].max(bottom);
+    };
+    for tag in tags(drawn, "<rect ") {
+        if tag.contains("figure-bg") {
+            continue;
+        }
+        let (x, y) = (num(&tag, "x"), num(&tag, "y"));
+        cover(x, y, x + num(&tag, "width"), y + num(&tag, "height"));
+    }
+    for tag in tags(drawn, "<line ") {
+        let xs = [num(&tag, "x1"), num(&tag, "x2")];
+        let ys = [num(&tag, "y1"), num(&tag, "y2")];
+        cover(
+            xs[0].min(xs[1]),
+            ys[0].min(ys[1]),
+            xs[0].max(xs[1]),
+            ys[0].max(ys[1]),
+        );
+    }
+    for tag in tags(drawn, "<circle ") {
+        let (x, y, r) = (num(&tag, "cx"), num(&tag, "cy"), num(&tag, "r"));
+        cover(x - r, y - r, x + r, y + r);
+    }
+    for tag in tags(drawn, "<path ") {
+        let Some(d) = attr(&tag, "d") else { continue };
+        let (mut x, mut y) = (0.0, 0.0);
+        for command in d.replace(',', " ").split_whitespace() {
+            let (letter, rest) = command.split_at(1);
+            match letter {
+                "M" => {
+                    x = rest.parse().expect("x");
+                }
+                "H" => x = rest.parse().expect("x"),
+                "V" => y = rest.parse().expect("y"),
+                "Z" => continue,
+                _ => {
+                    // The y that follows an M.
+                    y = command.parse().unwrap_or(y);
+                }
+            }
+            cover(x, y, x, y);
+        }
+    }
+    for (start, _) in drawn.match_indices("<text ") {
+        let tag_end = drawn[start..].find('>').expect("tag end") + start;
+        let tag = &drawn[start..=tag_end];
+        let content = drawn[tag_end + 1..]
+            .split('<')
+            .next()
+            .expect("text content")
+            .replace("&amp;", "&");
+        let size = num(tag, "font-size");
+        let (x, y) = (num(tag, "x"), num(tag, "y"));
+        let width = content.chars().count() as f64 * size * 0.58;
+        let (left, right) = match attr(tag, "text-anchor").as_deref() {
+            Some("end") => (x - width, x),
+            Some("middle") => (x - width / 2.0, x + width / 2.0),
+            _ => (x, x + width),
+        };
+        cover(left, y - 0.8 * size, right, y + 0.25 * size);
+    }
+    extent
+}
+
+#[then(regex = r#"^the viewBox is the content bounds plus the same padding on every side$"#)]
+fn view_box_is_content_plus_padding(world: &mut BotSpyWorld) {
+    let figure = figure(world);
+    let view_box = view_box_of(&figure.svg);
+    assert_eq!(view_box, figure.view_box);
+    let pad = timeline_example::render::PAD;
+    let [cx, cy, cw, ch] = figure.content;
+    assert_eq!(
+        view_box,
+        [cx - pad, cy - pad, cw + 2.0 * pad, ch + 2.0 * pad]
+    );
+    assert_eq!(pad, 16.0);
+}
+
+#[then(regex = r#"^no element extends past the viewBox$"#)]
+fn nothing_past_view_box(world: &mut BotSpyWorld) {
+    let figure = figure(world);
+    let [vx, vy, vw, vh] = figure.view_box;
+    let [left, top, right, bottom] = drawn_extent(&figure.svg);
+    assert!(
+        left >= vx && top >= vy,
+        "past the top or left: {left} {top}"
+    );
+    assert!(
+        right <= vx + vw && bottom <= vy + vh,
+        "past the bottom or right: {right} {bottom} of {} {}",
+        vx + vw,
+        vy + vh
+    );
+}
+
+#[then(
+    regex = r#"^the padding is even: the content touches the figure's edges 16 px in on every side$"#
+)]
+fn padding_is_even(world: &mut BotSpyWorld) {
+    let figure = figure(world);
+    let [vx, vy, vw, vh] = figure.view_box;
+    let [left, top, right, bottom] = drawn_extent(&figure.svg);
+    let pads = [left - vx, top - vy, vx + vw - right, vy + vh - bottom];
+    for pad in pads {
+        // Less than a pixel of slack: the height is rounded up to whole pixels.
+        assert!((pad - 16.0).abs() < 1.0, "paddings are {pads:?}");
+    }
+    assert!(
+        (pads[1] - pads[3]).abs() < 1.0,
+        "top and bottom differ: {pads:?}"
+    );
+}
+
+fn png_size(bytes: &[u8]) -> (u32, u32) {
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "not a PNG");
+    let read = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
+    (read(16), read(20))
+}
+
+#[then(regex = r#"^the PNG is ([0-9]+) times the size of the viewBox$"#)]
+fn png_is_scaled(world: &mut BotSpyWorld, scale: f64) {
+    assert_eq!(world.timeline.exit, Some(0));
+    let [_, _, width, height] = figure(world).view_box;
+    let (png_w, png_h) = png_size(&world.timeline.file_bytes);
+    assert_eq!(
+        (f64::from(png_w), f64::from(png_h)),
+        (width * scale, height * scale)
+    );
+}
+
+#[then(regex = r#"^the file is a standalone SVG sized to its viewBox$"#)]
+fn file_is_standalone_svg(world: &mut BotSpyWorld) {
+    assert_eq!(world.timeline.exit, Some(0));
+    let svg = String::from_utf8(world.timeline.file_bytes.clone()).expect("utf-8");
+    assert!(svg.starts_with("<svg "));
+    assert!(svg.contains("xmlns=\"http://www.w3.org/2000/svg\""));
+    let root = tags(&svg, "<svg ").remove(0);
+    let [_, _, width, height] = view_box_of(&svg);
+    assert_eq!(attr(&root, "width"), Some(width.to_string()));
+    assert_eq!(attr(&root, "height"), Some(height.to_string()));
+    assert!(!svg.contains("<script") && !svg.contains("href="));
+}
+
+#[then(regex = r#"^the output path is printed$"#)]
+fn output_path_printed(world: &mut BotSpyWorld) {
+    let path = world.timeline.out_path.as_ref().expect("output path");
+    assert_eq!(world.timeline.stdout.trim(), path.display().to_string());
+}
+
+const THEME_BG: [(&str, &str, [u8; 3]); 2] = [
+    ("light", "#ffffff", [0xff, 0xff, 0xff]),
+    ("dark", "#10151b", [0x10, 0x15, 0x1b]),
+];
+
+#[then(regex = r#"^the figure uses the (light|dark) colours with no variables or media queries$"#)]
+fn figure_uses_theme(world: &mut BotSpyWorld, theme: String) {
+    let svg = &figure(world).svg;
+    let (_, background, _) = THEME_BG
+        .iter()
+        .find(|(name, ..)| *name == theme)
+        .expect("theme");
+    assert!(
+        svg.contains(&format!(".figure-bg{{fill:{background}}}")),
+        "{theme}"
+    );
+    for plain in ["var(", "@media", ":root"] {
+        assert!(!svg.contains(plain), "figure contains {plain:?}");
+    }
+}
+
+#[then(regex = r#"^the PNG's background is the (light|dark) background$"#)]
+fn png_background(world: &mut BotSpyWorld, theme: String) {
+    let (_, _, rgb) = THEME_BG
+        .iter()
+        .find(|(name, ..)| *name == theme)
+        .expect("theme");
+    let pixmap = resvg::tiny_skia::Pixmap::decode_png(&world.timeline.file_bytes).expect("a PNG");
+    let corner = pixmap.pixel(0, 0).expect("a corner pixel");
+    assert_eq!([corner.red(), corner.green(), corner.blue()], *rgb);
+    assert_eq!(corner.alpha(), 255);
+}
+
+#[given(regex = r#"^a sub-agent session "([^"]+)" of kind "([^"]+)" under session "([^"]+)"$"#)]
+fn subagent_session(world: &mut BotSpyWorld, id: String, kind: String, parent: String) {
+    add(
+        world,
+        session_at(&parent, "alpha", DAY, &every_five("09:00", "10:00")),
+    );
+    let mut child = session_at(&id, "alpha", DAY, &every_five("09:10", "09:30"));
+    child.parent_id = Some(parent);
+    child.subagent = Some(botspy::SubagentInfo {
+        kind,
+        nesting_depth: None,
+    });
+    add(world, child);
+}
+
+fn label_of(world: &BotSpyWorld, id: &str) -> String {
+    let views = lanes(html(world));
+    let block = &lane(&views, id).block;
+    let start = block.find("<text class=\"lane-label\"").expect("a label");
+    let text = &block[start..];
+    let shown = text.split('>').nth(1).expect("label text");
+    shown.split('<').next().expect("label text").to_string()
+}
+
+#[then(regex = r#"^the lane "([^"]+)" is labelled "([^"]+)"$"#)]
+fn lane_labelled(world: &mut BotSpyWorld, id: String, label: String) {
+    assert_eq!(label_of(world, &id), label);
+}
+
+#[then(
+    regex = r#"^the lane "([^"]+)" is labelled with at most 20 characters ending in an ellipsis$"#
+)]
+fn lane_label_cut(world: &mut BotSpyWorld, id: String) {
+    let label = label_of(world, &id);
+    assert_eq!(label.chars().count(), 20, "{label}");
+    assert!(label.ends_with('…'));
+}
+
+#[then(regex = r#"^the tooltip of lane "([^"]+)" holds its full session id and kind$"#)]
+fn lane_tooltip(world: &mut BotSpyWorld, id: String) {
+    let views = lanes(html(world));
+    let block = &lane(&views, &id).block;
+    assert!(block.contains(&format!("<title>Claude Code session {id}, sub-agent (")));
+}
+
+#[then(regex = r#"^the page sets no maximum width on the figure$"#)]
+fn no_max_width(world: &mut BotSpyWorld) {
+    let page = html(world);
+    assert!(!page.contains("max-width"), "the page caps the width");
+    assert!(page.contains(".figure{width:100%;height:auto"));
+    let root = tags(page, "<svg ").remove(0);
+    assert!(attr(&root, "width").is_none() && attr(&root, "height").is_none());
+    assert!(attr(&root, "viewBox").is_some());
+}
+
+#[then(regex = r#"^the page embeds the same figure with the title, legend and axis inside it$"#)]
+fn page_embeds_figure(world: &mut BotSpyWorld) {
+    let page = html(world);
+    assert_eq!(page.matches("<svg ").count(), 1);
+    let start = page.find("<svg ").expect("figure");
+    let end = page.find("</svg>").expect("figure end");
+    let figure = &page[start..end];
+    for part in [
+        "Parallel sessions timeline",
+        "class=\"legend\"",
+        "class=\"concurrency\"",
+        "class=\"lanes\"",
+        "class=\"axis\"",
+        "class=\"ink peak\"",
+    ] {
+        assert!(figure.contains(part), "the figure lacks {part}");
+    }
 }
