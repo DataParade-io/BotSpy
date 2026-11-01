@@ -205,10 +205,12 @@ Feature: Parallel sessions timeline
     And the lane "parent" is labelled "Claude Code parent"
     And the tooltip of lane "parent--agent-a3f9c2e1b7" holds its full session id and kind
 
-  Scenario: A long sub-agent label is cut to 20 characters
+  Scenario: A long sub-agent kind is cut so the sub-agent's own id still shows
+    Sibling sub-agents often share a long kind such as "general-purpose".
+    Cutting the kind rather than the id keeps their lanes telling apart.
     Given a sub-agent session "parent--agent-a3f9c2e1b7" of kind "security-review-specialist" under session "parent"
     When the timeline example renders
-    Then the lane "parent--agent-a3f9c2e1b7" is labelled with at most 20 characters ending in an ellipsis
+    Then the lane "parent--agent-a3f9c2e1b7" is labelled "↳ Security-r… a3f9c2"
 
   Scenario: The demo corpus shows parallel work
     When the timeline example renders with "--demo"
