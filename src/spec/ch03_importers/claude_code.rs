@@ -34,6 +34,9 @@
     "## Behavior specification\n\n",
     "### claude_code/adapter.feature\n\n```gherkin\n",
     include_str!("../../../features/03_importers/claude_code/adapter.feature"),
+    "\n```\n\n",
+    "### claude_code/message_origin.feature\n\n```gherkin\n",
+    include_str!("../../../features/03_importers/claude_code/message_origin.feature"),
     "\n```\n"
 )]
 //!

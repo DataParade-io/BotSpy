@@ -177,7 +177,7 @@ erDiagram
         enum role "user assistant system tool"
         string timestamp "optional, never fabricated"
         string turn_id "optional"
-        string origin "developer, agent_message, simulated"
+        string origin "developer, agent_message, simulated, harness"
     }
     PART {
         string kind "text thinking tool_call tool_result attachment inline_data blob system"

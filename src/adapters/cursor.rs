@@ -13,7 +13,7 @@
 
 use crate::importer::SkipCounter;
 use crate::schema::{
-    Agent, KnownPart, Message, Part, Provenance, Role, SessionMetadata, SubagentInfo,
+    Agent, KnownPart, Message, Origin, Part, Provenance, Role, SessionMetadata, SubagentInfo,
 };
 use crate::session::SessionSummary;
 use crate::snapshot::SnapshotConnection;
@@ -662,9 +662,17 @@ fn normalize_bubble(
     if parts.is_empty() {
         return Some(Err(SkipReason::Malformed));
     }
+    // `isSimulatedMsg`: Cursor wrote this user bubble itself (a plan run,
+    // an injected follow-up), the human did not type it.
+    let simulated = role == Role::User
+        && bubble
+            .get("isSimulatedMsg")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     let mut message = Message {
         role,
         parts,
+        origin: simulated.then_some(Origin::Simulated),
         ..Message::default()
     };
     message.timestamp = bubble
@@ -890,12 +898,17 @@ impl CursorCliSource {
                 skipped.malformed += 1;
                 continue;
             }
+            let is_user = role != "assistant";
+            let (parts, origin, extra) = if is_user {
+                split_user_context(parts)
+            } else {
+                (parts, None, None)
+            };
             session.messages.push(Message {
-                role: match role {
-                    "assistant" => Role::Assistant,
-                    _ => Role::User,
-                },
+                role: if is_user { Role::User } else { Role::Assistant },
                 parts,
+                origin,
+                extra,
                 timestamp: record
                     .get("timestamp")
                     .and_then(Value::as_str)
@@ -916,6 +929,78 @@ impl CursorCliSource {
             skipped,
         })
     }
+}
+
+/// What the human typed, when the CLI wrapped it with context: the text
+/// between `<user_query>` and `</user_query>`, and the text around them.
+fn user_query(text: &str) -> Option<(&str, String)> {
+    let open = text.find("<user_query>")?;
+    let start = open + "<user_query>".len();
+    let end = text.rfind("</user_query>").filter(|end| *end >= start)?;
+    let around = format!("{}{}", &text[..open], &text[end + "</user_query>".len()..]);
+    Some((text[start..end].trim(), around.trim().to_string()))
+}
+
+/// Whether a CLI user text with no `<user_query>` is context the CLI
+/// injected: nothing after a leading `<timestamp>` wrapper, or a tag-led
+/// block (tool catalogs, command lists, sub-agent context). Plain text,
+/// as the older flat transcripts hold, is the human's.
+fn is_injected_cli_text(text: &str) -> bool {
+    let mut rest = text.trim_start();
+    if let Some(after) = rest.strip_prefix("<timestamp>") {
+        rest = after
+            .split_once("</timestamp>")
+            .map_or("", |(_, tail)| tail);
+    }
+    let rest = rest.trim_start();
+    rest.is_empty() || rest.starts_with('<')
+}
+
+/// Separate what the human typed from what the CLI added around it.
+///
+/// - A text with `<user_query>` is the human's: the text part becomes the
+///   query alone, and the rest of the text is kept in `extra.context`.
+/// - A text with no query that is only a timestamp or a tag-led block is
+///   injected context.
+/// - A message with no human text at all is marked [`Origin::Harness`].
+fn split_user_context(parts: Vec<Part>) -> (Vec<Part>, Option<Origin>, Option<Value>) {
+    let mut human = Vec::new();
+    let mut context = Vec::new();
+    let mut other = Vec::new();
+    for part in parts {
+        let Part::Known(KnownPart::Text { text, extra }) = &part else {
+            other.push(part);
+            continue;
+        };
+        if let Some((query, around)) = user_query(text) {
+            if !around.is_empty() {
+                context.push(Value::String(around));
+            }
+            human.push(Part::Known(KnownPart::Text {
+                text: query.to_string(),
+                extra: extra.clone(),
+            }));
+        } else if is_injected_cli_text(text) {
+            context.push(Value::String(text.clone()));
+        } else {
+            human.push(part);
+        }
+    }
+    if human.is_empty() {
+        // Nothing the human said: keep the injected text as it came.
+        let kept = context
+            .into_iter()
+            .filter_map(|value| match value {
+                Value::String(text) => Some(Part::Known(KnownPart::Text { text, extra: None })),
+                _ => None,
+            })
+            .chain(other)
+            .collect();
+        return (kept, Some(Origin::Harness), None);
+    }
+    human.extend(other);
+    let extra = (!context.is_empty()).then(|| serde_json::json!({ "context": context }));
+    (human, None, extra)
 }
 
 /// The real directory a Cursor CLI project name encodes, or `None`.
@@ -1868,6 +1953,61 @@ mod tests {
         assert!(source.discover().0.is_empty());
         assert!(source.extract("c1").is_none());
         assert_eq!(source.snapshots_taken(), 0);
+    }
+
+    fn text_part_of(text: &str) -> Vec<Part> {
+        vec![Part::Known(KnownPart::Text {
+            text: text.to_string(),
+            extra: None,
+        })]
+    }
+
+    #[test]
+    fn a_cli_query_is_the_text_and_its_context_goes_to_extra() {
+        let wrapped = "<timestamp>Monday</timestamp>\n<user_query>\nadd a test\n</user_query>";
+        let (parts, origin, extra) = split_user_context(text_part_of(wrapped));
+        assert_eq!(origin, None);
+        assert_eq!(parts, text_part_of("add a test"));
+        assert_eq!(
+            extra,
+            Some(serde_json::json!({"context": ["<timestamp>Monday</timestamp>"]}))
+        );
+    }
+
+    #[test]
+    fn cli_records_without_human_words_are_marked_and_kept_whole() {
+        for text in [
+            "<timestamp>Monday</timestamp>",
+            "<dynamic_tools>x</dynamic_tools>",
+        ] {
+            let (parts, origin, extra) = split_user_context(text_part_of(text));
+            assert_eq!(origin, Some(Origin::Harness), "{text}");
+            assert_eq!(parts, text_part_of(text));
+            assert_eq!(extra, None);
+        }
+        let (parts, origin, _) = split_user_context(text_part_of("plain older text"));
+        assert_eq!(origin, None);
+        assert_eq!(parts, text_part_of("plain older text"));
+    }
+
+    #[test]
+    fn simulated_user_bubbles_are_marked_and_typed_ones_are_not() {
+        let mark = |bubble: Value| {
+            normalize_bubble(&bubble, "b1", Path::new("store"))
+                .unwrap()
+                .ok()
+                .unwrap()
+                .origin
+        };
+        assert_eq!(
+            mark(json!({"type": 1, "text": "go", "isSimulatedMsg": true})),
+            Some(Origin::Simulated)
+        );
+        assert_eq!(mark(json!({"type": 1, "text": "go"})), None);
+        assert_eq!(
+            mark(json!({"type": 2, "text": "ok", "isSimulatedMsg": true})),
+            None
+        );
     }
 
     // ── CLI project directory resolution ────────────────────────────────

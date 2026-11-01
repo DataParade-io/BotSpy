@@ -42,6 +42,9 @@
     "\n```\n\n",
     "### cursor/workspace.feature\n\n```gherkin\n",
     include_str!("../../../features/03_importers/cursor/workspace.feature"),
+    "\n```\n\n",
+    "### cursor/message_origin.feature\n\n```gherkin\n",
+    include_str!("../../../features/03_importers/cursor/message_origin.feature"),
     "\n```\n"
 )]
 //!

@@ -51,7 +51,7 @@ it). A process restart loses the offsets.
 
 | Record type | Unified result |
 | --- | --- |
-| `response_item`, payload message user / assistant | A `Text` part |
+| `response_item`, payload message user / assistant | A `Text` part. A user message that the harness injected has origin `harness` (see below) |
 | `response_item`, payload message developer | A `System` part with origin developer |
 | `response_item`, reasoning summary | A `Thinking` part |
 | `function_call` | A `ToolCall` part (call id, name, parsed arguments) |
@@ -59,6 +59,18 @@ it). A process restart loses the offsets.
 | `token_usage_record` | Session `Usage`: input, output, cached input, reasoning tokens, and the model |
 | `compacted` | A `CompactionWindow`: window id, previous window, retained context |
 | `task_complete` | A `Turn`: turn id, duration, time to first token |
+
+## Who wrote a user message
+
+Codex puts its own blocks in the conversation under the user role. The
+adapter keeps the role and sets the origin `harness` when the text starts
+with `# AGENTS.md instructions` or one of these tags:
+`environment_context`, `user_instructions`, `INSTRUCTIONS`,
+`codex_internal_context`, `in-app-browser-context`,
+`external_codex_apps_open_page`, `turn_aborted`. Any other user message
+has no origin. This includes a reply to a question that the agent asked
+(`send_user_message_question_reply`): it carries the human's words. The
+list is the constant `INJECTED_TAGS` in `src/adapters/codex.rs`.
 
 ## Report
 
