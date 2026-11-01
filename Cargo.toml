@@ -1,6 +1,6 @@
 [package]
 name = "botspy"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Pop open the conversation history of any coding agent: one adapter per agent, one normalized schema, one unified agent-session history."
 license = "MIT"
