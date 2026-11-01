@@ -235,6 +235,24 @@ Feature: Parallel sessions timeline
     And the lane "parent" is labelled "Claude Code parent"
     And the tooltip of lane "parent--agent-a3f9c2e1b7" holds its full session id and kind
 
+  Scenario: Sessions that share an id still get a row each
+    Cursor reports some conversations twice, once from the IDE store and
+    once from the CLI transcripts, under the same id. Each is its own lane,
+    so each needs its own row; otherwise one label is drawn over another
+    and a row is left empty.
+    Given two sources report sessions with the same id "shared"
+    When the timeline example renders
+    Then each of the 2 lanes is drawn on a row of its own
+
+  Scenario: Sub-agent kinds spelled differently by different agents read the same
+    Claude Code says "general-purpose" where Cursor says "GeneralPurpose";
+    one agent's "code-review" is another's "CodeReview".
+    The label writes every kind as hyphenated words, so the same kind of
+    sub-agent reads the same whichever agent ran it.
+    Given a sub-agent session "c0ffee02--agent-b1c2d3e4f5" of kind "CodeReview" under session "c0ffee02"
+    When the timeline example renders
+    Then the lane "c0ffee02--agent-b1c2d3e4f5" is labelled "↳ Code-review b1c2d3"
+
   Scenario: Session ids can be left out of a figure meant for publishing
     Short session ids help when you are reading your own history, but they
     are identifiers, and a figure for an article does not need them. With
