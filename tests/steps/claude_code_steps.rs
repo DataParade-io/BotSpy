@@ -443,3 +443,75 @@ fn records_skipped_unknown(world: &mut BotSpyWorld, count: u64) {
     let extraction = world.cc_extraction.as_ref().expect("extraction");
     assert_eq!(extraction.skipped.unknown, count);
 }
+
+// ---- working directory ---------------------------------------------------
+
+/// A user record carrying a `cwd` field (empty text leaves the field empty).
+fn record_with_cwd(uuid: &str, timestamp: &str, cwd: &str) -> String {
+    format!(
+        r#"{{"type":"user","uuid":"{uuid}","parentUuid":"","timestamp":"{timestamp}","cwd":"{cwd}","message":{{"role":"user","content":"hello"}}}}"#
+    )
+}
+
+#[given(
+    regex = r#"^a Claude Code transcript "([^"]+)" whose records carry the working directory "([^"]+)"$"#
+)]
+fn transcript_with_cwd(world: &mut BotSpyWorld, name: String, cwd: String) {
+    let dir = project_dir(&new_root(world));
+    let lines = [
+        record_with_cwd("uuid-1", &stamp(0), &cwd),
+        record_with_cwd("uuid-2", &stamp(1), &cwd),
+    ];
+    write_transcript(&dir.join(&name), &lines, None);
+    finish_setup(world, name);
+}
+
+#[given(
+    regex = r#"^a Claude Code transcript "([^"]+)" whose first record has no working directory and later records name "([^"]+)" and "([^"]+)"$"#
+)]
+fn transcript_with_late_cwd(world: &mut BotSpyWorld, name: String, first: String, second: String) {
+    let dir = project_dir(&new_root(world));
+    let lines = [
+        record_with_cwd("uuid-1", &stamp(0), ""),
+        record_with_cwd("uuid-2", &stamp(1), &first),
+        record_with_cwd("uuid-3", &stamp(2), &second),
+    ];
+    write_transcript(&dir.join(&name), &lines, None);
+    finish_setup(world, name);
+}
+
+#[given(regex = r#"^a Claude Code sub-agent whose records carry the working directory "([^"]+)"$"#)]
+fn subagent_with_cwd(world: &mut BotSpyWorld, cwd: String) {
+    let dir = project_dir(&new_root(world));
+    write_parent_transcript(&dir, "a.jsonl");
+    write_subagent(&dir, "a", "1", None);
+    let path = dir.join("a").join("subagents").join("agent-1.jsonl");
+    let text = std::fs::read_to_string(&path).expect("read sub-agent transcript");
+    let text = text.replace(
+        r#""isSidechain":true,"#,
+        &format!(r#""isSidechain":true,"cwd":"{cwd}","#),
+    );
+    std::fs::write(&path, text).expect("rewrite sub-agent transcript");
+    finish_setup(world, "a.jsonl".to_string());
+}
+
+#[then(regex = r#"^the session's working directory is "([^"]+)"$"#)]
+fn session_cwd_is(world: &mut BotSpyWorld, cwd: String) {
+    assert_eq!(extracted(world).metadata.cwd.as_deref(), Some(cwd.as_str()));
+}
+
+#[then(regex = r#"^the session has no working directory$"#)]
+fn session_has_no_cwd(world: &mut BotSpyWorld) {
+    assert_eq!(extracted(world).metadata.cwd, None);
+}
+
+#[then(regex = r#"^discovery lists the session "([^"]+)" with the working directory "([^"]+)"$"#)]
+fn discovery_lists_cwd(world: &mut BotSpyWorld, id: String, cwd: String) {
+    let source = world.cc_source.as_ref().expect("no Claude Code source");
+    let (summaries, _) = source.discover();
+    let found = summaries
+        .iter()
+        .find(|summary| summary.id == id)
+        .unwrap_or_else(|| panic!("discovery did not list {id}"));
+    assert_eq!(found.metadata.cwd.as_deref(), Some(cwd.as_str()));
+}

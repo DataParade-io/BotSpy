@@ -214,6 +214,73 @@ fn encoded_project_without_cwd(world: &mut BotSpyWorld) {
     );
 }
 
+#[given(
+    regex = r#"^a Cursor session with an unresolved encoded project id that has no leading dash$"#
+)]
+fn cursor_unresolved_encoded(world: &mut BotSpyWorld) {
+    let mut session = session_at(
+        "cli",
+        &format!("Users-{HOME_USER}-Projects-Widget-Factory"),
+        DAY,
+        &every_five("09:00", "09:30"),
+    );
+    session.agent = Agent::Cursor;
+    add(world, session);
+}
+
+#[given(regex = r#"^a session whose working directory is the home directory$"#)]
+fn cwd_is_home(world: &mut BotSpyWorld) {
+    let mut session = session_at(
+        "home",
+        &format!("-Users-{HOME_USER}"),
+        DAY,
+        &every_five("09:00", "09:30"),
+    );
+    session.metadata.cwd = Some(format!("/Users/{HOME_USER}"));
+    add(world, session);
+}
+
+/// Built at run time: not a real id, and not written into the source.
+fn synthetic_uuid() -> String {
+    ["3f2a9c1e", "7b4d", "4e21", "9a6c", "0d5e8f1b2c34"].join("-")
+}
+
+#[given(regex = r#"^a session whose project id is a UUID and that has no working directory$"#)]
+fn project_id_is_uuid(world: &mut BotSpyWorld) {
+    add(
+        world,
+        session_at(
+            "uuid",
+            &synthetic_uuid(),
+            DAY,
+            &every_five("09:00", "09:30"),
+        ),
+    );
+}
+
+#[given(
+    regex = r#"^the folder "([^"]+)" seen through Claude Code, Cursor and the Cursor CLI, each with its own project id$"#
+)]
+fn same_folder_three_agents(world: &mut BotSpyWorld, folder: String) {
+    let cwd = format!("/work/{folder}");
+    let encoded = folder.replace('.', "-");
+    let views = [
+        ("claude", Agent::ClaudeCode, format!("-work-{encoded}")),
+        (
+            "ide",
+            Agent::Cursor,
+            "0123456789abcdef0123456789abcdef".to_string(),
+        ),
+        ("cli", Agent::Cursor, format!("work-{encoded}")),
+    ];
+    for (id, agent, project) in views {
+        let mut session = session_at(id, &project, DAY, &every_five("09:00", "09:30"));
+        session.agent = agent;
+        session.metadata.cwd = Some(cwd.clone());
+        add(world, session);
+    }
+}
+
 const LONG_PROJECT: &str = "a-remarkably-long-project-name-for-a-narrow-column";
 
 #[given(regex = r#"^a session in a project with a very long name$"#)]
@@ -879,6 +946,53 @@ fn labelled_after_projects(world: &mut BotSpyWorld) {
     let page = html(world);
     assert!(page.contains("data-project=\"Widget-Factory\""));
     assert!(!page.contains("-Users-"));
+}
+
+#[then(regex = r#"^the project is labelled "([^"]+)"$"#)]
+fn project_labelled(world: &mut BotSpyWorld, label: String) {
+    let page = html(world);
+    assert!(page.contains(&format!("<g class=\"project\" data-project=\"{label}\">")));
+}
+
+#[then(regex = r#"^the project is labelled with a neutral "project-" name$"#)]
+fn project_neutral(world: &mut BotSpyWorld) {
+    let page = html(world);
+    let groups = project_groups(page);
+    assert_eq!(groups.len(), 1);
+    let hash = groups[0].strip_prefix("project-").expect("neutral name");
+    assert_eq!(hash.len(), 8);
+    assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+}
+
+#[then(regex = r#"^the page never contains the UUID$"#)]
+fn no_uuid(world: &mut BotSpyWorld) {
+    assert!(!html(world).contains(&synthetic_uuid()));
+}
+
+/// The `data-project` of every project group heading on the page.
+fn project_groups(page: &str) -> Vec<String> {
+    page.match_indices("<g class=\"project\" data-project=\"")
+        .map(|(start, found)| {
+            let rest = &page[start + found.len()..];
+            rest[..rest.find('"').expect("closing quote")].to_string()
+        })
+        .collect()
+}
+
+#[then(regex = r#"^the page has exactly ([0-9]+) project groups?$"#)]
+fn exact_groups(world: &mut BotSpyWorld, count: usize) {
+    assert_eq!(project_groups(html(world)).len(), count);
+}
+
+#[then(regex = r#"^that group is labelled "([^"]+)" and holds ([0-9]+) lanes$"#)]
+fn group_label_and_lanes(world: &mut BotSpyWorld, label: String, count: usize) {
+    let page = html(world);
+    assert_eq!(project_groups(page), std::slice::from_ref(&label));
+    let in_group = lanes(page)
+        .iter()
+        .filter(|view| attr(&view.tag, "data-project").as_deref() == Some(label.as_str()))
+        .count();
+    assert_eq!(in_group, count);
 }
 
 #[then(regex = r#"^the page never contains the home-directory name$"#)]
