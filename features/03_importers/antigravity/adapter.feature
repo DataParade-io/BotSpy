@@ -94,3 +94,23 @@ Feature: Antigravity importer
     And the error step holds the record's error text and is an error
     And the checkpoint step is a compaction summary
     And extraction reports 0 skipped records
+
+  Scenario: The working directory is the first file URI of the workspace list
+    Given a current-schema Antigravity summaries index whose conversation "conv-1" has the workspaces "file:///work/my%20demo" and "file:///work/other"
+    And a transcript for each conversation
+    When the Antigravity importer detects changes
+    Then session "conv-1" has the working directory "/work/my demo"
+    And extracting "conv-1" gives the working directory "/work/my demo"
+
+  Scenario: A workspace list with no file URI leaves the working directory unset
+    Given a current-schema Antigravity summaries index whose conversation "conv-1" has the workspaces "vscode-remote://host/work/demo"
+    And a transcript for each conversation
+    When the Antigravity importer detects changes
+    Then session "conv-1" has no working directory
+    And extracting "conv-1" gives no working directory
+
+  Scenario: The UUID project id is kept as the id but is not the working directory
+    Given a current-schema Antigravity summaries index whose conversation "conv-1" has the workspaces "file:///work/demo"
+    And a transcript for each conversation
+    When the Antigravity importer detects changes
+    Then extracting "conv-1" gives the project "demo-project" and the working directory "/work/demo"

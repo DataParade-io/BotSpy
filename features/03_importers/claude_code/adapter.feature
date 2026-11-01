@@ -77,3 +77,25 @@ Feature: Claude Code importer
     When the file is completed with the rest of the record
     And the Claude Code importer extracts the transcript again
     Then extraction yields 1 more message
+
+  Scenario: The working directory comes from the transcript records
+    Given a Claude Code transcript "a.jsonl" whose records carry the working directory "/work/Chattic.us"
+    When the Claude Code importer extracts the transcript
+    Then the session's working directory is "/work/Chattic.us"
+    And discovery lists the session "a" with the working directory "/work/Chattic.us"
+
+  Scenario: The first non-empty working directory names the project
+    Given a Claude Code transcript "a.jsonl" whose first record has no working directory and later records name "/work/first" and "/work/second"
+    When the Claude Code importer extracts the transcript
+    Then the session's working directory is "/work/first"
+
+  Scenario: A transcript whose records carry no working directory leaves it unset
+    Given a Claude Code transcript "a.jsonl" with 2 records
+    When the Claude Code importer extracts the transcript
+    Then the session has no working directory
+
+  Scenario: A sub-agent's working directory comes from its own records
+    Given a Claude Code sub-agent whose records carry the working directory "/work/Chattic.us"
+    When the Claude Code importer extracts the sub-agent session "a--agent-1"
+    Then the session's working directory is "/work/Chattic.us"
+    And discovery lists the session "a--agent-1" with the working directory "/work/Chattic.us"

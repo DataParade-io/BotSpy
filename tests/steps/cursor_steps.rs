@@ -780,3 +780,119 @@ fn the_copy_is_removed(world: &mut BotSpyWorld) {
     let dir = world.cur_snapshot_dir.clone().expect("no snapshot copy");
     assert!(!dir.exists(), "dropping the source must remove its copy");
 }
+
+// ── CLI working directory ───────────────────────────────────────────────────
+
+/// A fresh base directory whose path has only characters the CLI's project
+/// encoding keeps apart (letters, digits, `/`, `-`, `.`), so the encoded name
+/// can be resolved back; the default temp dir may hold `_`.
+fn plain_base() -> PathBuf {
+    let tmp = std::env::temp_dir();
+    let plain = tmp.to_str().is_some_and(|p| {
+        p.chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/-.".contains(c))
+    });
+    let root = if plain { tmp } else { PathBuf::from("/tmp") };
+    let base = root.join("botspy-cwd").join(format!(
+        "{}-{}",
+        std::process::id(),
+        UNIQUE_DIR.fetch_add(1, Ordering::SeqCst)
+    ));
+    std::fs::create_dir_all(&base).expect("create the plain base");
+    base
+}
+
+/// The CLI's project directory name for a path: every character that is not
+/// a letter or digit becomes `-`, with no leading dash.
+fn encode_cli_project(path: &std::path::Path) -> String {
+    let encoded: String = path
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    encoded.trim_start_matches('-').to_string()
+}
+
+fn cli_project_with_session(world: &mut BotSpyWorld, session: &str, project: &str) {
+    let projects = new_cli_data_root(world);
+    let dir = projects.join(project).join("agent-transcripts");
+    std::fs::create_dir_all(&dir).expect("create agent-transcripts dir");
+    std::fs::write(
+        dir.join(format!("{session}.jsonl")),
+        "{\"role\":\"user\",\"text\":\"hello from the CLI\"}\n",
+    )
+    .expect("write CLI transcript");
+}
+
+#[given(
+    regex = r#"^a Cursor projects directory with a CLI session "([^"]+)" encoded from the real folder "([^"]+)"$"#
+)]
+fn cli_session_from_real_folder(world: &mut BotSpyWorld, session: String, folder: String) {
+    let real = plain_base().join("work").join(&folder);
+    std::fs::create_dir_all(&real).expect("create the real folder");
+    cli_project_with_session(world, &session, &encode_cli_project(&real));
+    world.cur_real_folder = Some(real);
+}
+
+#[given(
+    regex = r#"^a Cursor projects directory with a CLI session "([^"]+)" encoded from a folder that does not exist$"#
+)]
+fn cli_session_from_missing_folder(world: &mut BotSpyWorld, session: String) {
+    let missing = plain_base().join("work").join("never-created");
+    cli_project_with_session(world, &session, &encode_cli_project(&missing));
+    world.cur_real_folder = None;
+}
+
+fn cwd_matches_real_folder(cwd: Option<&str>, world: &BotSpyWorld) {
+    let real = world.cur_real_folder.as_ref().expect("no real folder");
+    assert_eq!(cwd, real.to_str());
+}
+
+#[then(regex = r#"^the discovered CLI session "([^"]+)" is in the real folder$"#)]
+fn discovered_cli_cwd(world: &mut BotSpyWorld, id: String) {
+    let summary = world
+        .discovered
+        .iter()
+        .find(|summary| summary.id == id)
+        .expect("session not discovered");
+    cwd_matches_real_folder(summary.metadata.cwd.as_deref(), world);
+}
+
+#[then(regex = r#"^the discovered CLI session "([^"]+)" has no working directory$"#)]
+fn discovered_cli_no_cwd(world: &mut BotSpyWorld, id: String) {
+    let summary = world
+        .discovered
+        .iter()
+        .find(|summary| summary.id == id)
+        .expect("session not discovered");
+    assert_eq!(summary.metadata.cwd, None);
+}
+
+#[then(regex = r#"^the project id stays the encoded name$"#)]
+fn cli_project_id_encoded(world: &mut BotSpyWorld) {
+    let real = world.cur_real_folder.as_ref().expect("no real folder");
+    assert_eq!(world.discovered[0].project_id, encode_cli_project(real));
+}
+
+#[then(regex = r#"^the CLI session "([^"]+)" is in the real folder$"#)]
+fn extracted_cli_cwd(world: &mut BotSpyWorld, _id: String) {
+    let cwd = world
+        .cur_cli_extraction
+        .as_ref()
+        .expect("no CLI extraction")
+        .session
+        .metadata
+        .cwd
+        .clone();
+    cwd_matches_real_folder(cwd.as_deref(), world);
+}
+
+#[then(regex = r#"^the CLI session "([^"]+)" has no working directory$"#)]
+fn extracted_cli_no_cwd(world: &mut BotSpyWorld, _id: String) {
+    let session = &world
+        .cur_cli_extraction
+        .as_ref()
+        .expect("no CLI extraction")
+        .session;
+    assert_eq!(session.metadata.cwd, None);
+}

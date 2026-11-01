@@ -248,6 +248,15 @@ impl ClaudeCodeSource {
                 skipped.unknown += 1;
                 continue;
             }
+            // Every record carries the working directory; the first
+            // non-empty one names the session's project.
+            if session.metadata.cwd.is_none() {
+                session.metadata.cwd = record
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .filter(|cwd| !cwd.is_empty())
+                    .map(str::to_string);
+            }
             match record.get("type").and_then(Value::as_str) {
                 Some("cost-state") => apply_cost(&mut session, &record),
                 Some("pr-link") => {
@@ -864,5 +873,38 @@ mod tests {
         let second = source.extract("s1").expect("extract again");
         assert_eq!(second.good, 1);
         assert_eq!(second.pending_partial, 0);
+    }
+
+    #[test]
+    fn the_first_non_empty_record_cwd_is_the_session_cwd() {
+        let root = std::env::temp_dir().join(format!("botspy-cc-cwd-{}", std::process::id()));
+        let with_cwd = |uuid: &str, cwd: &str| {
+            format!(
+                r#"{{"type":"user","uuid":"{uuid}","parentUuid":"","timestamp":"2026-10-01T09:00:00Z","cwd":"{cwd}","message":{{"role":"user","content":"hi"}}}}"#
+            )
+        };
+        write_transcript(
+            &root,
+            "proj-a",
+            "s1.jsonl",
+            &[
+                with_cwd("u1", ""),
+                with_cwd("u2", "/work/first"),
+                with_cwd("u3", "/work/second"),
+            ],
+        );
+        write_transcript(
+            &root,
+            "proj-a",
+            "s2.jsonl",
+            &[user_record("u4", "", "2026-10-01T09:00:00Z", "no cwd")],
+        );
+        let source = ClaudeCodeSource::new(&root);
+        let extracted = source.extract("s1").unwrap().session;
+        assert_eq!(extracted.metadata.cwd.as_deref(), Some("/work/first"));
+        let (summaries, _) = source.discover();
+        assert_eq!(summaries[0].metadata.cwd.as_deref(), Some("/work/first"));
+        assert_eq!(summaries[1].metadata.cwd, None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

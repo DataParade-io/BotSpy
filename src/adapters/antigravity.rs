@@ -61,6 +61,30 @@ struct ConversationRow {
     parent_id: Option<String>,
     nesting_depth: Option<u64>,
     agent_name: Option<String>,
+    /// The first `file://` workspace URI, as a path.
+    cwd: Option<String>,
+}
+
+/// The working directory a `workspace_uris` value names: the first
+/// `file://` URI in its JSON array, percent-decoded into a path.
+fn first_workspace_path(raw: &str) -> Option<String> {
+    let Ok(Value::Array(uris)) = serde_json::from_str::<Value>(raw) else {
+        return None;
+    };
+    uris.iter()
+        .filter_map(Value::as_str)
+        .find_map(crate::adapters::cursor::file_uri_path)
+}
+
+/// The `workspace_uris` cell as text, whether it was stored as text or a
+/// blob. Anything else (including NULL) is `None`.
+fn workspace_uris(row: &rusqlite::Row<'_>, index: usize) -> Option<String> {
+    if let Ok(text) = row.get::<_, String>(index) {
+        return Some(text);
+    }
+    row.get::<_, Vec<u8>>(index)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
 }
 
 /// `2026-10-01 09:00:00.5+00:00` as `2026-10-01T09:00:00.5+00:00`: the
@@ -125,11 +149,23 @@ impl AntigravitySource {
             .unwrap_or(false)
         };
         if has_table("conversation_summaries") {
-            let Ok(mut stmt) = kv.prepare(
+            let has_workspace_uris = kv
+                .prepare("PRAGMA table_info(conversation_summaries)")
+                .and_then(|mut info| {
+                    info.query_map([], |row| row.get::<_, String>(1))
+                        .map(|names| names.flatten().any(|name| name == "workspace_uris"))
+                })
+                .unwrap_or(false);
+            let workspace = if has_workspace_uris {
+                "workspace_uris"
+            } else {
+                "NULL"
+            };
+            let Ok(mut stmt) = kv.prepare(&format!(
                 "SELECT conversation_id, project_id, title, last_modified_time, \
-                 parent_conversation_id, nesting_depth, agent_name \
-                 FROM conversation_summaries ORDER BY conversation_id",
-            ) else {
+                 parent_conversation_id, nesting_depth, agent_name, {workspace} \
+                 FROM conversation_summaries ORDER BY conversation_id"
+            )) else {
                 return Vec::new();
             };
             let rows = stmt.query_map([], |row| {
@@ -146,6 +182,7 @@ impl AntigravitySource {
                     parent_id: text(4)?,
                     nesting_depth: row.get::<_, Option<i64>>(5)?.map(|d| d.max(0) as u64),
                     agent_name: text(6)?,
+                    cwd: workspace_uris(row, 7).and_then(|raw| first_workspace_path(&raw)),
                 })
             });
             return rows
@@ -185,6 +222,7 @@ impl AntigravitySource {
                 last_activity_at: row.last_activity.clone(),
                 metadata: SessionMetadata {
                     title: row.title.clone(),
+                    cwd: row.cwd.clone(),
                     ..SessionMetadata::default()
                 },
                 ..SessionSummary::default()
@@ -288,6 +326,7 @@ impl AntigravitySource {
             ..crate::session::Session::default()
         };
         session.metadata.title = row.title.clone();
+        session.metadata.cwd = row.cwd.clone();
         if let Some(parent) = &row.parent_id {
             session.parent_id = Some(parent.clone());
             session.subagent = Some(SubagentInfo {
@@ -896,5 +935,72 @@ mod tests {
         assert!(messages[5].is_compaction_summary);
         assert_eq!(extraction.session.started_at, "2026-10-01T09:00:00Z");
         assert_eq!(extraction.session.last_activity_at, "2026-10-01T09:00:05Z");
+    }
+
+    #[test]
+    fn the_first_file_uri_of_workspace_uris_is_the_cwd() {
+        assert_eq!(
+            first_workspace_path(r#"["file:///work/my%20demo","file:///work/other"]"#).as_deref(),
+            Some("/work/my demo")
+        );
+        assert_eq!(
+            first_workspace_path(r#"["vscode-remote://h/x","file:///work/demo"]"#).as_deref(),
+            Some("/work/demo")
+        );
+        assert_eq!(first_workspace_path(r#"["vscode-remote://h/x"]"#), None);
+        assert_eq!(first_workspace_path("[]"), None);
+        assert_eq!(first_workspace_path("not json"), None);
+        assert_eq!(first_workspace_path(r#"{"a":1}"#), None);
+    }
+
+    #[test]
+    fn workspace_uris_set_the_cwd_in_discovery_and_extraction() {
+        let root = temp_root("workspace");
+        write_current_summaries(
+            &root,
+            &[("conv-1", None, 0, "self"), ("conv-2", None, 0, "self")],
+        );
+        write_transcript(&root, "conv-1", &[user_input(1, "hello")]);
+        write_transcript(&root, "conv-2", &[user_input(1, "hello")]);
+        let conn = open_store(&root.join("conversation_summaries.db"));
+        conn.execute(
+            "UPDATE conversation_summaries SET workspace_uris = ?1 WHERE conversation_id = 'conv-1'",
+            [r#"["file:///work/demo"]"#],
+        )
+        .unwrap();
+        // A blob-typed cell is read too.
+        conn.execute(
+            "UPDATE conversation_summaries SET workspace_uris = ?1 WHERE conversation_id = 'conv-2'",
+            [br#"["file:///work/blob"]"#.to_vec()],
+        )
+        .unwrap();
+        let source = AntigravitySource::new(&root);
+        let (summaries, _) = source.discover();
+        assert_eq!(summaries[0].metadata.cwd.as_deref(), Some("/work/demo"));
+        assert_eq!(summaries[1].metadata.cwd.as_deref(), Some("/work/blob"));
+        let session = source.extract("conv-1").unwrap().session;
+        assert_eq!(session.metadata.cwd.as_deref(), Some("/work/demo"));
+        assert_eq!(session.project_id, "demo-project");
+    }
+
+    #[test]
+    fn a_summaries_table_without_workspace_uris_is_still_read() {
+        let root = temp_root("no-workspace");
+        let conn = open_store(&root.join("conversation_summaries.db"));
+        conn.execute(
+            "CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, title TEXT, \
+             last_modified_time TEXT, project_id TEXT, parent_conversation_id TEXT, \
+             nesting_depth INTEGER, agent_name TEXT)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO conversation_summaries VALUES ('conv-1', 't', '2026-10-01 09:00:00+00:00', 'p', '', 0, '')",
+            [],
+        )
+        .unwrap();
+        let (summaries, _) = AntigravitySource::new(&root).discover();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].metadata.cwd, None);
     }
 }

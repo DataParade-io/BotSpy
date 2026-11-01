@@ -560,7 +560,7 @@ fn workspace_folder(json: &Value) -> Option<String> {
 
 /// The path of a `file://` URI, percent-decoded. Other schemes, and hosts
 /// other than local, give `None`.
-fn file_uri_path(uri: &str) -> Option<String> {
+pub(crate) fn file_uri_path(uri: &str) -> Option<String> {
     let rest = uri.strip_prefix("file://")?;
     let path = rest.strip_prefix("localhost").unwrap_or(rest);
     if !path.starts_with('/') {
@@ -718,12 +718,30 @@ struct CliTranscript {
 #[derive(Debug)]
 pub struct CursorCliSource {
     root: PathBuf,
+    /// Encoded project directory name -> the real directory it names, if
+    /// one exists. Filled on demand; each name is resolved once.
+    resolved: std::sync::Mutex<std::collections::HashMap<String, Option<String>>>,
 }
 
 impl CursorCliSource {
     /// A CLI source over the projects root.
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            resolved: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// The real directory an encoded project name stands for, if it
+    /// resolves (see [`resolve_encoded_dir`]). Cached per source.
+    fn project_cwd(&self, project: &str) -> Option<String> {
+        let mut cache = self.resolved.lock().expect("resolved");
+        cache
+            .entry(project.to_string())
+            .or_insert_with(|| {
+                resolve_encoded_dir(project).map(|path| path.to_string_lossy().into_owned())
+            })
+            .clone()
     }
 
     /// The projects root this source watches.
@@ -798,6 +816,10 @@ impl CursorCliSource {
             summaries.push(SessionSummary {
                 id: transcript.id,
                 agent: Agent::Cursor,
+                metadata: SessionMetadata {
+                    cwd: self.project_cwd(&transcript.project),
+                    ..SessionMetadata::default()
+                },
                 project_id: transcript.project,
                 ..SessionSummary::default()
             });
@@ -839,6 +861,7 @@ impl CursorCliSource {
             file_modified_at: file_modified_at(&path),
             ..crate::session::Session::default()
         };
+        session.metadata.cwd = self.project_cwd(&session.project_id);
         if let Some(parent) = transcript.parent {
             session.parent_id = Some(parent);
             session.subagent = Some(SubagentInfo {
@@ -893,6 +916,72 @@ impl CursorCliSource {
             skipped,
         })
     }
+}
+
+/// The real directory a Cursor CLI project name encodes, or `None`.
+///
+/// The CLI names a project directory after the working directory's path
+/// with every separator, `.` and `-` turned into `-` (and, unlike Claude
+/// Code, no leading dash): `Users-x-Projects-Chattic-us` may be
+/// `<home>/Projects/Chattic.us`. The name cannot be decoded blindly, so
+/// it is walked from the filesystem root: at each directory, a child
+/// matches when its name, with each `.` or other non-alphanumeric
+/// character read as `-`, is the next stretch of the encoded name (so a
+/// `-` in the name is a `/`, `.` or literal `-` of the path). Only a path
+/// that exists as a directory is accepted. A leading dash (Claude Code's
+/// form) is accepted too.
+///
+/// The walk is bounded by the name's own segments: it goes one directory
+/// deeper per matched stretch, listing each directory once, and never
+/// searches outside the path the name spells. It only reads.
+pub(crate) fn resolve_encoded_dir(encoded: &str) -> Option<PathBuf> {
+    resolve_encoded_dir_under(Path::new("/"), encoded)
+}
+
+/// [`resolve_encoded_dir`], walking from `root` instead of `/`.
+fn resolve_encoded_dir_under(root: &Path, encoded: &str) -> Option<PathBuf> {
+    fn flatten(name: &str) -> String {
+        name.chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect()
+    }
+    fn walk(dir: &Path, rest: &str) -> Option<PathBuf> {
+        let mut children: Vec<(String, PathBuf)> = std::fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .filter_map(|entry| Some((flatten(entry.file_name().to_str()?), entry.path())))
+            .collect();
+        children.sort();
+        for (name, path) in children {
+            let after = if rest == name {
+                None
+            } else if let Some(after) = rest
+                .strip_prefix(name.as_str())
+                .and_then(|after| after.strip_prefix('-'))
+            {
+                Some(after)
+            } else {
+                continue;
+            };
+            if !path.is_dir() {
+                continue;
+            }
+            match after {
+                None => return Some(path),
+                Some(after) => {
+                    if let Some(found) = walk(&path, after) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+        None
+    }
+    let trimmed = encoded.strip_prefix('-').unwrap_or(encoded);
+    if trimmed.is_empty() {
+        return None;
+    }
+    walk(root, trimmed)
 }
 
 /// The parts of one CLI record: the current `{role, message: {content}}`
@@ -1779,5 +1868,87 @@ mod tests {
         assert!(source.discover().0.is_empty());
         assert!(source.extract("c1").is_none());
         assert_eq!(source.snapshots_taken(), 0);
+    }
+
+    // ── CLI project directory resolution ────────────────────────────────
+
+    fn tree(dirs: &[&str]) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        for dir in dirs {
+            std::fs::create_dir_all(root.path().join(dir)).unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn an_encoded_name_resolves_dots_hyphens_and_separators() {
+        let root = tree(&["work/Chattic.us", "work/my-app", "dev.tools/a-b.c"]);
+        let at = |name: &str| resolve_encoded_dir_under(root.path(), name);
+        assert_eq!(
+            at("work-Chattic-us"),
+            Some(root.path().join("work/Chattic.us"))
+        );
+        assert_eq!(at("work-my-app"), Some(root.path().join("work/my-app")));
+        assert_eq!(
+            at("dev-tools-a-b-c"),
+            Some(root.path().join("dev.tools/a-b.c"))
+        );
+    }
+
+    #[test]
+    fn underscores_and_spaces_in_a_folder_name_resolve_too() {
+        let root = tree(&["work/my_app dir"]);
+        assert_eq!(
+            resolve_encoded_dir_under(root.path(), "work-my-app-dir"),
+            Some(root.path().join("work/my_app dir"))
+        );
+    }
+
+    #[test]
+    fn a_leading_dash_is_accepted_and_a_hidden_folder_resolves() {
+        let root = tree(&["work/.hidden/app"]);
+        let at = |name: &str| resolve_encoded_dir_under(root.path(), name);
+        assert_eq!(
+            at("-work--hidden-app"),
+            Some(root.path().join("work/.hidden/app"))
+        );
+        assert_eq!(
+            at("work--hidden-app"),
+            Some(root.path().join("work/.hidden/app"))
+        );
+    }
+
+    #[test]
+    fn only_an_existing_directory_resolves() {
+        let root = tree(&["work/real"]);
+        std::fs::write(root.path().join("work/file.txt"), "x").unwrap();
+        let at = |name: &str| resolve_encoded_dir_under(root.path(), name);
+        assert_eq!(at("work-missing"), None);
+        assert_eq!(at("work-file-txt"), None);
+        assert_eq!(at("work-real-extra"), None);
+        assert_eq!(at(""), None);
+        assert_eq!(at("-"), None);
+    }
+
+    #[test]
+    fn a_long_unresolvable_name_is_bounded_by_its_own_segments() {
+        let root = tree(&["a"]);
+        let name = vec!["a"; 40].join("-");
+        assert_eq!(resolve_encoded_dir_under(root.path(), &name), None);
+    }
+
+    #[test]
+    fn a_resolution_is_cached_for_the_source() {
+        let source = CursorCliSource::new("/unused");
+        let missing = "botspy-cwd-test-never-created-folder";
+        assert_eq!(source.project_cwd(missing), None);
+        assert!(source.resolved.lock().unwrap().contains_key(missing));
+        // A cached answer is kept even if the filesystem changes later.
+        source
+            .resolved
+            .lock()
+            .unwrap()
+            .insert(missing.to_string(), Some("/kept".to_string()));
+        assert_eq!(source.project_cwd(missing).as_deref(), Some("/kept"));
     }
 }
