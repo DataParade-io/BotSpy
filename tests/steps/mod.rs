@@ -16,6 +16,7 @@ pub mod importer_steps;
 pub mod inline_steps;
 pub mod leftblock_stub;
 pub mod metadata_steps;
+pub mod meter_steps;
 pub mod privacy_steps;
 pub mod role_steps;
 pub mod schema_steps;
@@ -171,6 +172,8 @@ pub struct BotSpyWorld {
     pub privacy: privacy_steps::PrivacyState,
     /// State of the timeline-example scenarios.
     pub timeline: timeline_steps::TimelineState,
+    /// State of the meter-chart scenarios.
+    pub meter: meter_steps::MeterState,
     /// State of the Cursor workspace-grouping scenarios.
     pub cursor_ws: cursor_workspace_steps::WorkspaceState,
     /// Sources of the example consumers, for the public-API checks.

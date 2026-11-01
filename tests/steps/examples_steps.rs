@@ -71,6 +71,83 @@ fn sessions_with_counts(
     ];
 }
 
+/// One-session fixture the "only you" scenarios fill in.
+fn one_session(world: &mut BotSpyWorld) -> &mut Session {
+    if world.example_sessions.is_empty() {
+        world.example_sessions = vec![text_session("example-1", &[])];
+    }
+    world.example_sessions.first_mut().expect("a session")
+}
+
+fn message_as(role: Role, text: &str) -> Message {
+    Message {
+        role,
+        parts: vec![Part::Known(KnownPart::Text {
+            text: text.to_string(),
+            extra: None,
+        })],
+        ..Message::default()
+    }
+}
+
+#[given(regex = r#"^a session where I typed "([^"]+)" and the agent replied "([^"]+)"$"#)]
+fn typed_and_replied(world: &mut BotSpyWorld, typed: String, replied: String) {
+    let session = one_session(world);
+    session.messages.push(message_as(Role::User, &typed));
+    session.messages.push(message_as(Role::Assistant, &replied));
+}
+
+#[given(regex = r#"^a session where a tool result "([^"]+)" came back under the user role$"#)]
+fn tool_result_under_user(world: &mut BotSpyWorld, text: String) {
+    one_session(world).messages.push(Message {
+        role: Role::User,
+        parts: vec![Part::Known(KnownPart::ToolResult {
+            call_id: "call-1".to_string(),
+            text: Some(text),
+            status: None,
+            extra: None,
+        })],
+        ..Message::default()
+    });
+}
+
+#[given(regex = r#"^a session where tooling injected the user-role text "([^"]+)"$"#)]
+fn tooling_injected(world: &mut BotSpyWorld, text: String) {
+    let mut message = message_as(Role::User, &text);
+    message.origin = Some(botspy::Origin::Simulated);
+    one_session(world).messages.push(message);
+}
+
+#[given(
+    regex = r#"^the same session holds the compaction summary "([^"]+)" stored under the user role$"#
+)]
+fn compaction_under_user(world: &mut BotSpyWorld, text: String) {
+    let mut message = message_as(Role::User, &text);
+    message.is_compaction_summary = true;
+    one_session(world).messages.push(message);
+}
+
+#[given(regex = r#"^a sub-agent session where the parent agent prompted "([^"]+)"$"#)]
+fn subagent_prompted(world: &mut BotSpyWorld, text: String) {
+    let session = one_session(world);
+    session.parent_id = Some("parent-1".to_string());
+    session.subagent = Some(botspy::SubagentInfo {
+        kind: "explore".to_string(),
+        nesting_depth: None,
+    });
+    session.messages.push(message_as(Role::User, &text));
+}
+
+#[given(regex = r#"^a message of mine with the text parts "([^"]+)" and "([^"]+)"$"#)]
+fn message_with_two_parts(world: &mut BotSpyWorld, first: String, second: String) {
+    let mut message = message_as(Role::User, &first);
+    message.parts.push(Part::Known(KnownPart::Text {
+        text: second,
+        extra: None,
+    }));
+    one_session(world).messages.push(message);
+}
+
 #[given(regex = r#"^the unified history with ([0-9]+) fixture sessions$"#)]
 fn unified_history_with_sessions(world: &mut BotSpyWorld, count: usize) {
     world.example_sessions = (0..count)
