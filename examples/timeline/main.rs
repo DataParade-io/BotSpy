@@ -10,7 +10,7 @@
 //!
 //! ```text
 //! cargo run --example timeline -- [--since T] [--until T] [--project P]
-//!     [--source S]... [--titles] [--out PATH] [--svg PATH] [--png PATH]
+//!     [--source S]... [--titles] [--no-ids] [--out PATH] [--svg PATH] [--png PATH]
 //!     [--scale N] [--theme light|dark] [--demo] [path-to-agent-data-root]
 //! ```
 //!
@@ -63,8 +63,10 @@
 //! # Privacy
 //!
 //! The figure holds session timing, agent and project names, and short
-//! session ids. Session titles appear only with `--titles`. Message text is
-//! never read into it.
+//! session ids. `--no-ids` leaves the ids out: labels name the agent or
+//! sub-agent kind alone, and every id in the SVG becomes `session-N`.
+//! Session titles appear only with `--titles`. Message text is never read
+//! into it.
 //!
 //! `--demo` draws a generated, synthetic parallel-sessions corpus instead
 //! of reading a data root. Exit status: 0 on success, 2 on any error.
@@ -86,7 +88,7 @@ use common::{collect_sessions, default_root};
 use std::io::Write;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: timeline [--since T] [--until T] [--project P] [--source S]... [--titles] [--out PATH] [--svg PATH] [--png PATH] [--scale N] [--theme light|dark] [--demo] [path-to-agent-data-root]";
+const USAGE: &str = "usage: timeline [--since T] [--until T] [--project P] [--source S]... [--titles] [--no-ids] [--out PATH] [--svg PATH] [--png PATH] [--scale N] [--theme light|dark] [--demo] [path-to-agent-data-root]";
 
 /// What the command line asked for.
 #[derive(Debug, Clone, Default)]
@@ -96,6 +98,9 @@ pub struct Options {
     pub project: Option<String>,
     pub sources: Vec<Agent>,
     pub titles: bool,
+    /// Leave session ids out: labels name the agent or sub-agent kind
+    /// alone, and every id in the figure is replaced by a pseudonym.
+    pub no_ids: bool,
     /// The HTML page; `timeline.html` when no output at all was asked for.
     pub out: Option<PathBuf>,
     pub svg: Option<PathBuf>,
@@ -168,6 +173,7 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
                 };
             }
             "--titles" => options.titles = true,
+            "--no-ids" => options.no_ids = true,
             "--demo" => options.demo = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             path if options.root.is_none() => options.root = Some(PathBuf::from(path)),
@@ -181,11 +187,39 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
 }
 
 fn sessions_for(options: &Options, given: Option<Vec<Session>>) -> Vec<Session> {
-    match given {
+    let sessions = match given {
         Some(sessions) => sessions,
         None if options.demo => demo::sessions(),
         None => collect_sessions(options.root.as_deref().unwrap_or(&default_root())),
+    };
+    if options.no_ids {
+        pseudonymise(sessions)
+    } else {
+        sessions
     }
+}
+
+/// Replace every session id, and every parent pointer, with `session-N`,
+/// numbered in id order. The graph is kept; the identifiers are not.
+fn pseudonymise(mut sessions: Vec<Session>) -> Vec<Session> {
+    let mut ids: Vec<String> = sessions
+        .iter()
+        .flat_map(|session| std::iter::once(session.id.clone()).chain(session.parent_id.clone()))
+        .collect();
+    ids.sort();
+    ids.dedup();
+    let pseudonym = |id: &str| {
+        let n = ids
+            .binary_search_by(|probe| probe.as_str().cmp(id))
+            .unwrap_or(0)
+            + 1;
+        format!("session-{n}")
+    };
+    for session in &mut sessions {
+        session.id = pseudonym(&session.id);
+        session.parent_id = session.parent_id.as_deref().map(pseudonym);
+    }
+    sessions
 }
 
 /// Render the page for `args`. With `given` sessions they are used as they
