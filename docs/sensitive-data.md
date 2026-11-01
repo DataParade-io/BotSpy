@@ -114,11 +114,12 @@ removes when it finishes (a crash can leave it behind).
 
 `cargo run --example timeline` is an optional example consumer, not part
 of the `botspy` CLI. It reads sessions through the public API and writes
-one HTML file (`timeline.html` in the current directory, or `--out`):
+one HTML file (`timeline.html` in the current directory, or `--out`), and
+optionally the same figure as a standalone SVG (`--svg`) or PNG (`--png`):
 
 | Place | Content |
 | --- | --- |
-| the HTML file | Session timing (when each turn started and ended, the waiting time between turns, message counts per turn), the agent, the project name (last path segment of the project id) and the first 8 characters of each session id, plus parent and spawn links. Session titles only with `--titles`. Never message text |
+| the HTML, SVG and PNG files | Session timing (when each turn started and ended, the waiting time between turns, message counts per turn), the agent, the project name (last path segment of the project id) and the first 8 characters of each session id (sub-agents: their kind and the first 6 characters of their own id), plus parent and spawn links. Session titles only with `--titles`. Never message text |
 
 The page is self-contained (inline SVG and CSS) and loads nothing over the
 network, but it is a file on disk: treat it like other output, and note

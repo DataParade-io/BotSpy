@@ -1,23 +1,47 @@
 //! A timeline of parallel agent sessions: an example consumer of the BotSpy
 //! public API that draws how many sessions ran at once, where they
 //! overlapped, and how sessions fanned out into sub-agents. The output is
-//! one self-contained local HTML file (inline SVG and CSS, no scripts and
-//! nothing loaded from elsewhere).
+//! one self-contained figure: a single SVG holding the title, the peak
+//! line, a short description, the legend, the concurrency chart, the
+//! swimlanes and the axis. Its viewBox is the content plus an even 16 px
+//! padding, so there are no blank margins. The HTML page embeds that same
+//! figure (inline SVG and CSS, no scripts, nothing loaded from elsewhere),
+//! and the same figure can be written as a standalone SVG or a PNG.
 //!
 //! ```text
 //! cargo run --example timeline -- [--since T] [--until T] [--project P]
-//!     [--source S]... [--titles] [--out PATH] [--demo] [path-to-agent-data-root]
+//!     [--source S]... [--titles] [--out PATH] [--svg PATH] [--png PATH]
+//!     [--scale N] [--theme light|dark] [--demo] [path-to-agent-data-root]
 //! ```
 //!
-//! # What the page shows
+//! # Outputs
+//!
+//! - `--out PATH` writes the HTML page (default `timeline.html` when no
+//!   other output is asked for). It follows `prefers-color-scheme`.
+//! - `--svg PATH` writes the standalone figure SVG.
+//! - `--png PATH` rasterizes the figure with the pure-Rust `resvg` crate
+//!   (a dev-dependency, so the library's dependencies do not change) at
+//!   `--scale N` times its size, 2 by default, using the system fonts.
+//! - `--theme light|dark` picks the colours of the SVG and PNG (default
+//!   light). The HTML page always follows the reader's colour scheme.
+//!
+//! The images in `docs/images/` are made from the synthetic corpus:
+//!
+//! ```text
+//! cargo run --example timeline -- --demo --theme light --png docs/images/timeline.light.png
+//! cargo run --example timeline -- --demo --theme dark  --png docs/images/timeline.dark.png
+//! ```
+//!
+//! # What the figure shows
 //!
 //! - **Top:** the concurrency step-curve (agents working at once over
 //!   time) and its peak.
 //! - **Below:** one swimlane per session, grouped by project and ordered by
 //!   start. Bars are turns (the agent working); dotted lines are waiting for you.
 //!   Sub-agents and forks nest under the session that spawned them, joined
-//!   by a connector at the moment of the spawn. A child whose parent is not
-//!   in the selection sits at top level with a note.
+//!   by a connector at the moment of the spawn. A sub-agent lane is labelled
+//!   with its kind and its own short id ("↳ Explore a3f9c2"). A child whose
+//!   parent is not in the selection sits at top level with a note.
 //! - Agents are told apart by a fill pattern and a legend label as well as
 //!   colour. The page follows `prefers-color-scheme`, and hovering a bar
 //!   shows times and message counts.
@@ -38,29 +62,31 @@
 //!
 //! # Privacy
 //!
-//! The page holds session timing, agent and project names, and short
+//! The figure holds session timing, agent and project names, and short
 //! session ids. Session titles appear only with `--titles`. Message text is
-//! never read into the page.
+//! never read into it.
 //!
 //! `--demo` draws a generated, synthetic parallel-sessions corpus instead
-//! of reading a data root. `--out` defaults to `timeline.html`. Exit
-//! status: 0 on success, 2 on any error.
+//! of reading a data root. Exit status: 0 on success, 2 on any error.
 //!
-//! Like every example, this imports only `botspy` and the standard library.
+//! Like every example, this imports only `botspy` and the standard library
+//! (plus `resvg` for the PNG, in `raster.rs`).
 
 pub mod activity;
 #[path = "../common/mod.rs"]
 pub mod common;
 pub mod demo;
+pub mod raster;
 pub mod render;
 
 use self::activity::{parse_time, Ms};
+use self::render::{Figure, Scheme, Theme};
 use botspy::{Agent, Session};
 use common::{collect_sessions, default_root};
 use std::io::Write;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: timeline [--since T] [--until T] [--project P] [--source S]... [--titles] [--out PATH] [--demo] [path-to-agent-data-root]";
+const USAGE: &str = "usage: timeline [--since T] [--until T] [--project P] [--source S]... [--titles] [--out PATH] [--svg PATH] [--png PATH] [--scale N] [--theme light|dark] [--demo] [path-to-agent-data-root]";
 
 /// What the command line asked for.
 #[derive(Debug, Clone, Default)]
@@ -70,7 +96,13 @@ pub struct Options {
     pub project: Option<String>,
     pub sources: Vec<Agent>,
     pub titles: bool,
-    pub out: PathBuf,
+    /// The HTML page; `timeline.html` when no output at all was asked for.
+    pub out: Option<PathBuf>,
+    pub svg: Option<PathBuf>,
+    pub png: Option<PathBuf>,
+    /// PNG scale (device pixels per figure pixel).
+    pub scale: f32,
+    pub theme: Theme,
     pub demo: bool,
     pub root: Option<PathBuf>,
 }
@@ -89,7 +121,7 @@ fn parse_source(name: &str) -> Option<Agent> {
 
 pub fn parse_args(args: &[String]) -> Result<Options, String> {
     let mut options = Options {
-        out: PathBuf::from("timeline.html"),
+        scale: 2.0,
         ..Options::default()
     };
     let mut args = args.iter();
@@ -117,7 +149,24 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
                     format!("--source: unknown agent {name:?} (claude_code, cursor, codex, grok_bot, antigravity)")
                 })?);
             }
-            "--out" => options.out = PathBuf::from(value(arg)?),
+            "--out" => options.out = Some(PathBuf::from(value(arg)?)),
+            "--svg" => options.svg = Some(PathBuf::from(value(arg)?)),
+            "--png" => options.png = Some(PathBuf::from(value(arg)?)),
+            "--scale" => {
+                let text = value(arg)?;
+                options.scale = text
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|scale| scale.is_finite() && *scale > 0.0)
+                    .ok_or_else(|| format!("--scale: {text:?} is not a positive number"))?;
+            }
+            "--theme" => {
+                options.theme = match value(arg)?.as_str() {
+                    "light" => Theme::Light,
+                    "dark" => Theme::Dark,
+                    other => return Err(format!("--theme: {other:?} is not light or dark")),
+                };
+            }
             "--titles" => options.titles = true,
             "--demo" => options.demo = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
@@ -131,30 +180,68 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
     Ok(options)
 }
 
+fn sessions_for(options: &Options, given: Option<Vec<Session>>) -> Vec<Session> {
+    match given {
+        Some(sessions) => sessions,
+        None if options.demo => demo::sessions(),
+        None => collect_sessions(options.root.as_deref().unwrap_or(&default_root())),
+    }
+}
+
 /// Render the page for `args`. With `given` sessions they are used as they
 /// are; otherwise the demo corpus or the data root is read.
 pub fn page_for(args: &[String], given: Option<Vec<Session>>) -> Result<String, String> {
     let options = parse_args(args)?;
-    let sessions = match given {
-        Some(sessions) => sessions,
-        None if options.demo => demo::sessions(),
-        None => collect_sessions(options.root.as_deref().unwrap_or(&default_root())),
-    };
-    Ok(render::render(&sessions, &options))
+    Ok(render::render(&sessions_for(&options, given), &options))
 }
 
-/// Run the example: write the page and print its path. Returns the process
-/// exit status: 0 on success, 2 on any error.
+/// The standalone figure for `args`, in the requested `--theme`.
+pub fn figure_for(args: &[String], given: Option<Vec<Session>>) -> Result<Figure, String> {
+    let options = parse_args(args)?;
+    Ok(render::figure(
+        &sessions_for(&options, given),
+        &options,
+        Scheme::Fixed(options.theme),
+        true,
+    ))
+}
+
+fn write(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    std::fs::write(path, bytes)
+        .map_err(|error| format!("cannot write {}: {}", path.display(), error.kind()))
+}
+
+/// Run the example: write each requested output and print its path.
+/// Returns the process exit status: 0 on success, 2 on any error.
 pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let result = parse_args(args).and_then(|options| {
-        let page = page_for(args, None)?;
-        std::fs::write(&options.out, page)
-            .map_err(|error| format!("cannot write {}: {}", options.out.display(), error.kind()))?;
-        Ok(options.out)
+        let sessions = sessions_for(&options, None);
+        let mut written: Vec<PathBuf> = Vec::new();
+        let page_path = options.out.clone().or_else(|| {
+            (options.svg.is_none() && options.png.is_none()).then(|| PathBuf::from("timeline.html"))
+        });
+        if let Some(path) = page_path {
+            write(&path, render::render(&sessions, &options).as_bytes())?;
+            written.push(path);
+        }
+        if options.svg.is_some() || options.png.is_some() {
+            let figure = render::figure(&sessions, &options, Scheme::Fixed(options.theme), true);
+            if let Some(path) = &options.svg {
+                write(path, figure.svg.as_bytes())?;
+                written.push(path.clone());
+            }
+            if let Some(path) = &options.png {
+                write(path, &raster::png(&figure.svg, options.scale)?)?;
+                written.push(path.clone());
+            }
+        }
+        Ok(written)
     });
     match result {
-        Ok(path) => {
-            let _ = writeln!(out, "{}", path.display());
+        Ok(paths) => {
+            for path in paths {
+                let _ = writeln!(out, "{}", path.display());
+            }
             0
         }
         Err(message) => {

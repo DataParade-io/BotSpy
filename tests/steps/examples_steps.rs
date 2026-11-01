@@ -103,6 +103,10 @@ fn example_consumer_built(world: &mut BotSpyWorld) {
     // constraints, not just one.
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let mut files: Vec<std::path::PathBuf> = walk_sources(&examples);
+    // raster.rs is the one file allowed an outside crate (resvg, a
+    // dev-dependency, rasterizes the timeline PNG); timeline_steps.rs
+    // checks it on its own.
+    files.retain(|file| file.file_name().is_none_or(|name| name != "raster.rs"));
     files.sort();
     assert!(!files.is_empty(), "no example sources found");
     let mut sources = String::new();

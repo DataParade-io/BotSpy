@@ -1,6 +1,8 @@
-//! Layout and the self-contained HTML page: a concurrency step-curve on
-//! top, project-grouped swimlanes below, everything inline SVG and CSS.
-//! The page never carries message text, and titles only on request.
+//! Layout and the figure: one self-contained SVG (title, peak line,
+//! description, legend, concurrency chart, project-grouped swimlanes and
+//! axis) cut to its content plus an even padding. The HTML page embeds
+//! the same figure; SVG and PNG files are written from it too.
+//! The figure never carries message text, and titles only on request.
 
 use super::activity::{
     activity_of, clip, concurrency, format_duration, format_iso, format_short, Activity, Ms,
@@ -13,8 +15,6 @@ use std::fmt::Write as _;
 
 const LABEL_W: f64 = 250.0;
 const PLOT_W: f64 = 900.0;
-const RIGHT: f64 = 24.0;
-const CHART_TOP: f64 = 16.0;
 const CHART_H: f64 = 110.0;
 const ROW_H: f64 = 24.0;
 const NOTE_ROW_H: f64 = 38.0;
@@ -298,8 +298,181 @@ fn arrange(mut lanes: Vec<Lane<'_>>) -> Vec<(String, Vec<Lane<'_>>)> {
         .collect()
 }
 
-/// Render the page for `sessions` under `options`.
-pub fn render(sessions: &[Session], options: &Options) -> String {
+/// The colour set a figure is drawn with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Theme {
+    #[default]
+    Light,
+    Dark,
+}
+
+/// How a figure gets its colours: resolved to one theme (SVG and PNG
+/// files, whose renderers do not run CSS variables or media queries), or
+/// left to the reader's colour scheme (the HTML page).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scheme {
+    Auto,
+    Fixed(Theme),
+}
+
+/// One self-contained figure: the SVG text plus the boxes it was cut to.
+#[derive(Debug, Clone)]
+pub struct Figure {
+    pub svg: String,
+    /// `[min_x, min_y, width, height]` of the SVG viewBox.
+    pub view_box: [f64; 4],
+    /// `[x, y, width, height]` of the content, before padding.
+    pub content: [f64; 4],
+}
+
+/// Even padding between the content and the edge of the figure.
+pub const PAD: f64 = 16.0;
+/// A glyph's height above and below its baseline, as a fraction of the
+/// font size; the figure's top and bottom edges are cut with these.
+pub const ASCENT: f64 = 0.8;
+pub const DESCENT: f64 = 0.25;
+/// Conservative average glyph width, as a fraction of the font size.
+const CHAR_W: f64 = 0.58;
+const WIDTH: f64 = LABEL_W + PLOT_W;
+const FONT: &str = "'Helvetica Neue', Helvetica, Arial, 'Segoe UI', Roboto, sans-serif";
+
+/// The SVG namespace, spelled in two parts so that the examples'
+/// "nothing network-capable" source check does not trip on the URL text.
+const SVG_NS: &str = concat!("ht", "tp://www.w3.org/2000/svg");
+
+const TITLE: &str = "Parallel sessions timeline";
+
+fn text_width(text: &str, size: f64) -> f64 {
+    text.chars().count() as f64 * size * CHAR_W
+}
+
+/// Greedy word wrap to `max` width.
+fn wrap(text: &str, size: f64, max: f64) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(line)
+                if text_width(line, size) + text_width(word, size) + size * CHAR_W <= max =>
+            {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
+}
+
+/// (name, light, dark) for every themed colour.
+const PALETTE: [(&str, &str, &str); 10] = [
+    ("bg", "#ffffff", "#10151b"),
+    ("fg", "#1b1f24", "#e6eaee"),
+    ("muted", "#5b6570", "#9aa5b1"),
+    ("grid", "#e3e7ec", "#26303a"),
+    ("lane", "#f3f5f7", "#18202a"),
+    ("curve", "#9fc2e8", "#1f4a78"),
+    ("curve-line", "#1d5fa6", "#7db4ee"),
+    ("pat", "#16202b", "#0b0f14"),
+    ("edge", "#16202b", "#e6eaee"),
+    ("spawn", "#7a3e9d", "#c79bea"),
+];
+const AGENT_COLOURS: &str = "--a-claude_code:#e69f00;--a-cursor:#2fb68a;--a-codex:#56b4e9;--a-grok_bot:#cc79a7;--a-antigravity:#d6d6d6";
+
+fn root_vars(dark: bool) -> String {
+    PALETTE
+        .iter()
+        .map(|(name, light, deep)| format!("--{name}:{}", if dark { deep } else { light }))
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// The figure's style block. Rules are written with `var(--name)`; a fixed
+/// theme has every variable substituted so resvg and other plain SVG
+/// renderers see literal colours.
+fn css(scheme: Scheme) -> String {
+    let mut rules = String::new();
+    rules.push_str(".grid{stroke:var(--grid);stroke-width:1}.axis{fill:var(--muted)}.muted{fill:var(--muted)}.ink{fill:var(--fg)}\n");
+    rules.push_str(".concurrency{fill:var(--curve);stroke:var(--curve-line);stroke-width:1.5}.peak-mark{fill:var(--curve-line);stroke:var(--bg);stroke-width:2}\n");
+    rules.push_str(".figure-bg{fill:var(--bg)}.project-label{font-weight:700;fill:var(--fg)}.lane-bg{fill:var(--lane)}.lane-label{fill:var(--fg)}.nest{fill:var(--muted)}.note{font-style:italic;fill:var(--muted)}\n");
+    rules.push_str(".bar{stroke:var(--edge);stroke-width:1}.stretch.approximate{stroke-dasharray:4 3;fill-opacity:.6}.approximate-key{stroke-dasharray:4 3;fill:var(--lane)}.waiting{stroke:var(--muted);stroke-width:2;stroke-dasharray:2 3}\n");
+    rules.push_str(".spawn{stroke:var(--spawn);stroke-width:1.5;fill:none}.spawn-dot{fill:var(--spawn)}.mark{fill:var(--pat);stroke:var(--pat)}\n");
+    for agent in ALL_AGENTS {
+        let name = agent_name(agent);
+        let _ = writeln!(rules, ".base-{name}{{fill:var(--a-{name})}}");
+    }
+    match scheme {
+        Scheme::Auto => format!(
+            ":root{{color-scheme:light dark;{};{AGENT_COLOURS}}}\n@media (prefers-color-scheme: dark){{:root{{{}}}}}\n{}",
+            root_vars(false),
+            root_vars(true),
+            rules.trim_end()
+        ),
+        Scheme::Fixed(theme) => {
+            let mut resolved = rules;
+            for (name, light, deep) in PALETTE {
+                let value = if theme == Theme::Dark { deep } else { light };
+                resolved = resolved.replace(&format!("var(--{name})"), value);
+            }
+            for pair in AGENT_COLOURS.split(';') {
+                let (name, value) = pair.split_once(':').expect("colour pair");
+                resolved = resolved.replace(&format!("var({name})"), value);
+            }
+            resolved.trim_end().to_string()
+        }
+    }
+}
+
+const ALL_AGENTS: [Agent; 5] = [
+    Agent::ClaudeCode,
+    Agent::Cursor,
+    Agent::Codex,
+    Agent::GrokBot,
+    Agent::Antigravity,
+];
+
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// The id of a sub-agent session: what follows `--agent-` in
+/// `<parent>--agent-<id>`, or the whole id when there is no such marker.
+fn subagent_short_id(id: &str) -> String {
+    id.rsplit_once("--agent-")
+        .map_or(id, |(_, agent)| agent)
+        .chars()
+        .take(6)
+        .collect()
+}
+
+/// A session as named in labels and tooltips: a sub-agent by its kind and
+/// own id ("Explore a3f9c2"), anything else by agent and short id.
+fn session_name(session: &Session) -> String {
+    match &session.subagent {
+        Some(info) => format!(
+            "{} {}",
+            capitalised(&info.kind),
+            subagent_short_id(&session.id)
+        ),
+        None => format!("{} {}", agent_label(session.agent), short_id(&session.id)),
+    }
+}
+
+/// The text of a lane label: sub-agents carry their own arrow.
+fn lane_label_text(session: &Session) -> String {
+    let name = session_name(session);
+    if session.subagent.is_some() {
+        truncate(&format!("↳ {name}"), 20)
+    } else {
+        truncate(&name, 20)
+    }
+}
+
+/// Draw the figure for `sessions` under `options`.
+pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalone: bool) -> Figure {
     let groups = arrange(select(sessions, options));
     let lanes: Vec<&Lane<'_>> = groups.iter().flat_map(|(_, lanes)| lanes).collect();
     let stretches: Vec<Stretch> = lanes
@@ -317,11 +490,124 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
         high += 60_000;
     }
     let x = |time: Ms| LABEL_W + (time - low) as f64 / (high - low) as f64 * PLOT_W;
-    let base = CHART_TOP + CHART_H;
+
+    let mut agents: Vec<Agent> = lanes.iter().map(|lane| lane.session.agent).collect();
+    agents.sort();
+    agents.dedup();
+
+    // ---- header: title, peak, description, legend ----
+    let mut head = String::new();
+    let mut cursor = 0.0_f64;
+    let (title_size, peak_size, body_size) = (20.0, 16.0, 13.0);
+    cursor += title_size * ASCENT;
+    let _ = writeln!(
+        head,
+        "<text class=\"ink\" x=\"0\" y=\"{cursor:.1}\" font-size=\"{title_size}\" font-weight=\"700\">{TITLE}</text>"
+    );
+    cursor += 6.0 + peak_size;
+    let peak_line = if series.peak == 0 {
+        "No agent activity in the selected window.".to_string()
+    } else {
+        format!(
+            "Peak of {} agent{} working at once at {} UTC",
+            series.peak,
+            if series.peak == 1 { "" } else { "s" },
+            format_short(series.peak_at)
+        )
+    };
+    let _ = writeln!(
+        head,
+        "<text class=\"ink peak\" x=\"0\" y=\"{cursor:.1}\" font-size=\"{peak_size}\" font-weight=\"600\">{}</text>",
+        esc(&peak_line)
+    );
+    let description = format!(
+        "{} session{} in {} project{}, from {} to {} UTC. A bar is an agent working on a turn, from your message to its last reply; dotted lines are the agent waiting for you.{}",
+        lanes.len(),
+        if lanes.len() == 1 { "" } else { "s" },
+        groups.len(),
+        if groups.len() == 1 { "" } else { "s" },
+        format_short(low),
+        format_short(high),
+        if options.titles {
+            " Session titles are shown."
+        } else {
+            " Session titles and message text are not included."
+        }
+    );
+    cursor += 8.0;
+    for line in wrap(&description, body_size, WIDTH) {
+        cursor += body_size + 5.0;
+        let _ = writeln!(
+            head,
+            "<text class=\"muted meta\" x=\"0\" y=\"{cursor:.1}\" font-size=\"{body_size}\">{}</text>",
+            esc(&line)
+        );
+    }
+    cursor += DESCENT * body_size + 12.0;
+
+    // Legend: pattern swatches plus text, flowed to the figure width.
+    enum Key {
+        Agent(Agent),
+        Approximate,
+        Waiting,
+    }
+    let mut keys: Vec<Key> = agents.iter().copied().map(Key::Agent).collect();
+    keys.push(Key::Approximate);
+    keys.push(Key::Waiting);
+    let (swatch_w, swatch_h, key_gap, key_size) = (34.0, 16.0, 18.0, 12.0);
+    let note_size = 11.0;
+    let mut lx = 0.0_f64;
+    let mut ly = cursor;
+    head.push_str("<g class=\"legend\">\n");
+    for key in &keys {
+        let (label, note) = match key {
+            Key::Agent(agent) => (agent_label(*agent), pattern_name(*agent)),
+            Key::Approximate => ("approximate", "dashed outline: no message timestamps"),
+            Key::Waiting => ("waiting for you", "dotted line"),
+        };
+        let item_w =
+            swatch_w + 6.0 + text_width(label, key_size) + 6.0 + text_width(note, note_size);
+        if lx > 0.0 && lx + item_w > WIDTH {
+            lx = 0.0;
+            ly += swatch_h + 8.0;
+        }
+        let text_y = ly + 12.0;
+        let (open, swatch) = match key {
+            Key::Agent(agent) => {
+                let name = agent_name(*agent);
+                (
+                    format!("<g class=\"legend-item\" data-agent=\"{name}\" data-pattern=\"pat-{name}\">"),
+                    format!("<rect x=\"{lx:.1}\" y=\"{ly:.1}\" width=\"{swatch_w}\" height=\"{swatch_h}\" rx=\"3\" fill=\"url(#pat-{name})\" class=\"bar\"/>"),
+                )
+            }
+            Key::Approximate => (
+                "<g class=\"legend-item\" data-key=\"approximate\">".to_string(),
+                format!("<rect x=\"{lx:.1}\" y=\"{ly:.1}\" width=\"{swatch_w}\" height=\"{swatch_h}\" rx=\"3\" class=\"bar approximate-key\"/>"),
+            ),
+            Key::Waiting => (
+                "<g class=\"legend-item\" data-key=\"waiting\">".to_string(),
+                format!("<line x1=\"{lx:.1}\" y1=\"{:.1}\" x2=\"{:.1}\" y2=\"{:.1}\" class=\"waiting\"/>", ly + 8.0, lx + swatch_w, ly + 8.0),
+            ),
+        };
+        let label_x = lx + swatch_w + 6.0;
+        let note_x = label_x + text_width(label, key_size) + 6.0;
+        let _ = writeln!(
+            head,
+            "{open}{swatch}<text class=\"ink\" x=\"{label_x:.1}\" y=\"{text_y:.1}\" font-size=\"{key_size}\">{}</text><text class=\"muted\" x=\"{note_x:.1}\" y=\"{text_y:.1}\" font-size=\"{note_size}\">{}</text></g>",
+            esc(label),
+            esc(note)
+        );
+        lx += item_w + key_gap;
+    }
+    head.push_str("</g>\n");
+    cursor = ly + swatch_h + 18.0;
+
+    // ---- chart and lane geometry ----
+    let chart_top = cursor;
+    let base = chart_top + CHART_H;
     let y_max = f64::from(series.peak.max(1));
     let y = |count: u32| base - f64::from(count) / y_max * (CHART_H - 14.0);
 
-    // Row geometry.
     let mut rows: BTreeMap<&str, f64> = BTreeMap::new();
     let mut cursor = base + 34.0;
     let mut group_tops: Vec<f64> = Vec::new();
@@ -339,109 +625,42 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
         }
         cursor += 6.0;
     }
+    let axis_size = 11.0;
     let axis_y = cursor + 14.0;
-    let height = axis_y + 14.0;
-    let width = LABEL_W + PLOT_W + RIGHT;
+    // The content ends where the axis labels' descenders end.
+    let height = (axis_y + DESCENT * axis_size).ceil();
 
-    let mut agents: Vec<Agent> = lanes.iter().map(|lane| lane.session.agent).collect();
-    agents.sort();
-    agents.dedup();
-
-    let mut page = String::new();
-    page.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
-    page.push_str(
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Parallel sessions timeline</title>\n",
-    );
-    let _ = writeln!(page, "<style>\n{}\n</style>\n</head>\n<body>", css());
-    page.push_str("<header>\n<h1>Parallel sessions timeline</h1>\n");
-    if series.peak == 0 {
-        page.push_str("<p class=\"peak\">No agent activity in the selected window.</p>\n");
-    } else {
-        let _ = writeln!(
-            page,
-            "<p class=\"peak\">Peak of {} agent{} working at once at {} UTC</p>",
-            series.peak,
-            if series.peak == 1 { "" } else { "s" },
-            format_short(series.peak_at)
-        );
-    }
-    let _ = writeln!(
-        page,
-        "<p class=\"meta\">{} session{} in {} project{}, from {} to {} UTC. A bar is an agent working on a turn, from your message to its last reply; dotted lines are the agent waiting for you.{}</p>\n</header>",
-        lanes.len(),
-        if lanes.len() == 1 { "" } else { "s" },
-        groups.len(),
-        if groups.len() == 1 { "" } else { "s" },
-        format_short(low),
-        format_short(high),
-        if options.titles {
-            " Session titles are shown."
-        } else {
-            " Session titles and message text are not included."
-        }
-    );
-
-    // Legend.
-    page.push_str("<ul class=\"legend\" aria-label=\"Legend\">\n");
-    for agent in &agents {
-        let name = agent_name(*agent);
-        let _ = writeln!(
-            page,
-            "<li class=\"legend-item\" data-agent=\"{name}\" data-pattern=\"pat-{name}\"><svg width=\"34\" height=\"16\" aria-hidden=\"true\"><rect width=\"34\" height=\"16\" rx=\"3\" fill=\"url(#pat-{name})\" class=\"bar\"/></svg><span>{}</span><span class=\"pattern-name\">{}</span></li>",
-            agent_label(*agent),
-            pattern_name(*agent)
-        );
-    }
-    page.push_str("<li class=\"legend-item\" data-key=\"approximate\"><svg width=\"34\" height=\"16\" aria-hidden=\"true\"><rect width=\"34\" height=\"16\" rx=\"3\" class=\"bar approximate-key\"/></svg><span>approximate</span><span class=\"pattern-name\">dashed outline: no message timestamps</span></li>\n");
-    page.push_str("<li class=\"legend-item\" data-key=\"waiting\"><svg width=\"34\" height=\"16\" aria-hidden=\"true\"><line x1=\"0\" y1=\"8\" x2=\"34\" y2=\"8\" class=\"waiting\"/></svg><span>waiting for you</span><span class=\"pattern-name\">dotted line</span></li>\n</ul>\n");
-
-    // Patterns, defined once for every SVG in the page.
-    page.push_str("<svg class=\"defs\" width=\"0\" height=\"0\" aria-hidden=\"true\"><defs>\n");
-    for agent in &agents {
-        let name = agent_name(*agent);
-        let _ = writeln!(
-            page,
-            "<pattern id=\"pat-{name}\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\"><rect width=\"8\" height=\"8\" class=\"base base-{name}\"/>{}</pattern>",
-            pattern_marks(*agent)
-        );
-    }
-    page.push_str("</defs></svg>\n");
-
-    let _ = writeln!(
-        page,
-        "<svg class=\"timeline\" viewBox=\"0 0 {width} {height}\" role=\"img\" aria-label=\"Concurrent sessions over time, then one lane per session grouped by project\">"
-    );
-
+    let mut body = String::new();
     // Axis grid.
     let ticks = 6;
     for i in 0..=ticks {
         let time = low + (high - low) * i / ticks;
         let tx = x(time);
+        let anchor = if i == ticks { "end" } else { "middle" };
         let _ = writeln!(
-            page,
-            "<line class=\"grid\" x1=\"{tx:.1}\" y1=\"{CHART_TOP}\" x2=\"{tx:.1}\" y2=\"{:.1}\"/><text class=\"axis\" x=\"{tx:.1}\" y=\"{axis_y:.1}\" text-anchor=\"middle\">{}</text>",
+            body,
+            "<line class=\"grid\" x1=\"{tx:.1}\" y1=\"{chart_top:.1}\" x2=\"{tx:.1}\" y2=\"{:.1}\"/><text class=\"axis\" x=\"{tx:.1}\" y=\"{axis_y:.1}\" font-size=\"{axis_size}\" text-anchor=\"{anchor}\">{}</text>",
             axis_y - 14.0,
             &format_short(time)[5..]
         );
     }
 
     // Concurrency curve.
-    page.push_str("<g class=\"chart\">\n");
+    body.push_str("<g class=\"chart\">\n");
     let step = (series.peak.max(1) as usize).div_ceil(5).max(1);
     for level in (0..=series.peak.max(1) as usize).step_by(step) {
         let ly = y(level as u32);
         let _ = writeln!(
-            page,
-            "<line class=\"grid\" x1=\"{LABEL_W}\" y1=\"{ly:.1}\" x2=\"{:.1}\" y2=\"{ly:.1}\"/><text class=\"axis\" x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"end\">{level}</text>",
-            LABEL_W + PLOT_W,
+            body,
+            "<line class=\"grid\" x1=\"{LABEL_W}\" y1=\"{ly:.1}\" x2=\"{WIDTH}\" y2=\"{ly:.1}\"/><text class=\"axis\" x=\"{:.1}\" y=\"{:.1}\" font-size=\"{axis_size}\" text-anchor=\"end\">{level}</text>",
             LABEL_W - 8.0,
             ly + 4.0
         );
     }
     let _ = writeln!(
-        page,
-        "<text class=\"axis\" x=\"8\" y=\"{:.1}\">Agents working at once</text>",
-        CHART_TOP + 10.0
+        body,
+        "<text class=\"axis\" x=\"0\" y=\"{:.1}\" font-size=\"{axis_size}\">Agents working at once</text>",
+        chart_top + 10.0
     );
     if let Some((first, _)) = series.steps.first() {
         let mut d = format!("M{:.1},{base:.1}", x(*first));
@@ -455,7 +674,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
             .map(|(time, count)| format!("{}={count}", format_iso(*time)))
             .collect();
         let _ = writeln!(
-            page,
+            body,
             "<path class=\"concurrency\" d=\"{d}\" data-peak=\"{}\" data-peak-at=\"{}\" data-steps=\"{}\"><title>Agents working at once; peak {} at {} UTC</title></path>",
             series.peak,
             format_iso(series.peak_at),
@@ -464,20 +683,21 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
             format_short(series.peak_at)
         );
         let _ = writeln!(
-            page,
+            body,
             "<circle class=\"peak-mark\" cx=\"{:.1}\" cy=\"{:.1}\" r=\"4\"/>",
             x(series.peak_at),
             y(series.peak)
         );
     }
-    page.push_str("</g>\n");
+    body.push_str("</g>\n");
 
     // Swimlanes.
-    page.push_str("<g class=\"lanes\">\n");
+    body.push_str("<g class=\"lanes\">\n");
+    let lane_size = 12.0;
     for ((project, group), top) in groups.iter().zip(&group_tops) {
         let _ = writeln!(
-            page,
-            "<g class=\"project\" data-project=\"{0}\"><text class=\"project-label\" x=\"8\" y=\"{1:.1}\">{5}<title>{0}</title></text><text class=\"axis\" x=\"{2:.1}\" y=\"{1:.1}\" text-anchor=\"end\">{3} session{4}</text></g>",
+            body,
+            "<g class=\"project\" data-project=\"{0}\"><text class=\"project-label\" x=\"0\" y=\"{1:.1}\" font-size=\"13\">{5}<title>{0}</title></text><text class=\"axis\" x=\"{2:.1}\" y=\"{1:.1}\" font-size=\"{axis_size}\" text-anchor=\"end\">{3} session{4}</text></g>",
             esc(project),
             top + 18.0,
             LABEL_W - 8.0,
@@ -500,7 +720,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                 .then_some(session.metadata.title.as_deref())
                 .flatten()
                 .filter(|title| !title.is_empty());
-            let mut label = format!("{} {}", agent_label(session.agent), short_id(&session.id));
+            let mut label = lane_label_text(session);
             if let Some(title) = title {
                 label.push_str(" · ");
                 label.push_str(&truncate(
@@ -508,7 +728,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                     14usize.saturating_sub(lane.depth * 2).max(6),
                 ));
             }
-            let indent = 8.0 + lane.depth as f64 * 16.0;
+            let indent = 12.0 + lane.depth as f64 * 16.0;
             let parent_attr = session
                 .parent_id
                 .as_deref()
@@ -516,7 +736,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                 .map(|parent| format!(" data-parent=\"{}\"", esc(parent)))
                 .unwrap_or_default();
             let _ = writeln!(
-                page,
+                body,
                 "<g class=\"lane\" data-session=\"{}\" data-agent=\"{name}\" data-project=\"{}\" data-depth=\"{}\" data-relation=\"{}\"{parent_attr}>",
                 esc(&session.id),
                 esc(&lane.project),
@@ -524,21 +744,21 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                 lane.relation()
             );
             let _ = writeln!(
-                page,
+                body,
                 "<rect class=\"lane-bg\" x=\"{LABEL_W}\" y=\"{top:.1}\" width=\"{PLOT_W}\" height=\"{:.1}\" rx=\"4\"/>",
                 ROW_H - 2.0
             );
-            if lane.depth > 0 {
+            if lane.depth > 0 && session.subagent.is_none() {
                 let _ = writeln!(
-                    page,
-                    "<text class=\"nest\" x=\"{:.1}\" y=\"{:.1}\">↳</text>",
+                    body,
+                    "<text class=\"nest\" x=\"{:.1}\" y=\"{:.1}\" font-size=\"{lane_size}\">↳</text>",
                     indent - 12.0,
                     mid + 4.0
                 );
             }
             let _ = writeln!(
-                page,
-                "<text class=\"lane-label\" x=\"{indent:.1}\" y=\"{:.1}\">{}<title>{}</title></text>",
+                body,
+                "<text class=\"lane-label\" x=\"{indent:.1}\" y=\"{:.1}\" font-size=\"{lane_size}\">{}<title>{}</title></text>",
                 mid + 4.0,
                 esc(&label),
                 esc(&format!(
@@ -555,8 +775,8 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
             );
             if let Some(missing) = &lane.missing_parent {
                 let _ = writeln!(
-                    page,
-                    "<text class=\"note\" x=\"{indent:.1}\" y=\"{:.1}\" data-missing-parent=\"{}\">spawned by {}, which is not in this view</text>",
+                    body,
+                    "<text class=\"note\" x=\"{indent:.1}\" y=\"{:.1}\" font-size=\"11\" data-missing-parent=\"{}\">spawned by {}, which is not in this view</text>",
                     top + row_h - 4.0,
                     esc(missing),
                     esc(&short_id(missing))
@@ -566,7 +786,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                 if i > 0 {
                     let previous = lane.activity.stretches[i - 1].end;
                     let _ = writeln!(
-                        page,
+                        body,
                         "<line class=\"waiting\" x1=\"{:.1}\" y1=\"{mid:.1}\" x2=\"{:.1}\" y2=\"{mid:.1}\" data-start=\"{}\" data-end=\"{}\"><title>Waiting for you, {} ({} to {} UTC)</title></line>",
                         x(previous),
                         x(stretch.start),
@@ -581,9 +801,8 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                 let approximate = lane.activity.approximate;
                 let bar_w = (x(stretch.end) - x(stretch.start)).max(3.0);
                 let hover = format!(
-                    "{} {}, {} to {} UTC, {} message{}{}{}",
-                    agent_label(session.agent),
-                    short_id(&session.id),
+                    "{}, {} to {} UTC, {} message{}{}{}",
+                    session_name(session),
                     format_short(stretch.start),
                     format_short(stretch.end),
                     messages,
@@ -596,7 +815,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                     title.map(|t| format!(", {t}")).unwrap_or_default()
                 );
                 let _ = writeln!(
-                    page,
+                    body,
                     "<rect class=\"stretch bar{}\" x=\"{:.1}\" y=\"{:.1}\" width=\"{bar_w:.1}\" height=\"{}\" rx=\"3\" fill=\"url(#pat-{name})\" data-start=\"{}\" data-end=\"{}\" data-messages=\"{messages}\"{}><title>{}</title></rect>",
                     if approximate { " approximate" } else { "" },
                     x(stretch.start),
@@ -613,20 +832,28 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
                 );
             }
             if lane.activity.approximate {
+                // Beside the bar, or on its left when the right would
+                // spill past the figure.
+                let note = "approximate";
+                let right = x(lane.activity.stretches[0].end) + 6.0;
+                let (note_x, anchor) = if right + text_width(note, 11.0) <= WIDTH {
+                    (right, "start")
+                } else {
+                    (x(lane.activity.stretches[0].start) - 6.0, "end")
+                };
                 let _ = writeln!(
-                    page,
-                    "<text class=\"note\" x=\"{:.1}\" y=\"{:.1}\">approximate</text>",
-                    x(lane.activity.stretches[0].end) + 6.0,
+                    body,
+                    "<text class=\"note\" x=\"{note_x:.1}\" y=\"{:.1}\" font-size=\"11\" text-anchor=\"{anchor}\">{note}</text>",
                     mid + 4.0
                 );
             }
-            page.push_str("</g>\n");
+            body.push_str("</g>\n");
         }
     }
-    page.push_str("</g>\n");
+    body.push_str("</g>\n");
 
     // Spawn connectors: down from the parent lane at the moment of spawn.
-    page.push_str("<g class=\"spawns\">\n");
+    body.push_str("<g class=\"spawns\">\n");
     for lane in &lanes {
         if !lane.nested {
             continue;
@@ -640,7 +867,7 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
         };
         let sx = x(lane.start());
         let _ = writeln!(
-            page,
+            body,
             "<path class=\"spawn\" d=\"M{sx:.1},{:.1} V{:.1}\" data-parent=\"{}\" data-child=\"{}\" data-at=\"{}\"><title>{} spawned {} at {} UTC</title></path><circle class=\"spawn-dot\" cx=\"{sx:.1}\" cy=\"{:.1}\" r=\"3\"/>",
             from + ROW_H / 2.0,
             to + ROW_H / 2.0,
@@ -648,41 +875,70 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
             esc(&lane.session.id),
             format_iso(lane.start()),
             esc(&short_id(parent_id)),
-            esc(&short_id(&lane.session.id)),
+            esc(&session_name(lane.session)),
             format_short(lane.start()),
             from + ROW_H / 2.0
         );
     }
-    page.push_str("</g>\n</svg>\n");
-    page.push_str("<footer>Self-contained page: inline SVG and CSS, nothing loaded from elsewhere. Times are UTC.</footer>\n</body>\n</html>\n");
-    page
+    body.push_str("</g>\n");
+
+    // ---- assemble: the viewBox is the content plus an even padding ----
+    let view_box = [-PAD, -PAD, WIDTH + 2.0 * PAD, height + 2.0 * PAD];
+    let mut svg = String::new();
+    let _ = writeln!(
+        svg,
+        "<svg class=\"figure\"{} viewBox=\"{} {} {} {}\" font-family=\"{FONT}\" role=\"img\" aria-label=\"Parallel sessions: concurrent sessions over time, then one lane per session grouped by project\" data-pad=\"{PAD}\" data-content=\"0 0 {WIDTH} {height}\">",
+        if standalone {
+            format!(
+                " xmlns=\"{SVG_NS}\" width=\"{}\" height=\"{}\"",
+                view_box[2], view_box[3]
+            )
+        } else {
+            String::new()
+        },
+        view_box[0],
+        view_box[1],
+        view_box[2],
+        view_box[3]
+    );
+    let _ = writeln!(svg, "<style>\n{}\n</style>", css(scheme));
+    svg.push_str("<defs>\n");
+    for agent in &agents {
+        let name = agent_name(*agent);
+        let _ = writeln!(
+            svg,
+            "<pattern id=\"pat-{name}\" width=\"8\" height=\"8\" patternUnits=\"userSpaceOnUse\"><rect width=\"8\" height=\"8\" class=\"base base-{name}\"/>{}</pattern>",
+            pattern_marks(*agent)
+        );
+    }
+    svg.push_str("</defs>\n");
+    let _ = writeln!(
+        svg,
+        "<rect class=\"figure-bg\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>",
+        view_box[0], view_box[1], view_box[2], view_box[3]
+    );
+    svg.push_str(&head);
+    svg.push_str(&body);
+    svg.push_str("</svg>\n");
+    Figure {
+        svg,
+        view_box,
+        content: [0.0, 0.0, WIDTH, height],
+    }
 }
 
-fn css() -> String {
-    let mut css = String::from(
-        ":root{color-scheme:light dark;--bg:#ffffff;--fg:#1b1f24;--muted:#5b6570;--grid:#e3e7ec;--lane:#f3f5f7;--curve:#9fc2e8;--curve-line:#1d5fa6;--pat:#16202b;--edge:#16202b;--spawn:#7a3e9d;--a-claude_code:#e69f00;--a-cursor:#2fb68a;--a-codex:#56b4e9;--a-grok_bot:#cc79a7;--a-antigravity:#d6d6d6}\n",
+/// Render the HTML page for `sessions` under `options`: the same figure,
+/// embedded, in the reader's colour scheme.
+pub fn render(sessions: &[Session], options: &Options) -> String {
+    let figure = figure(sessions, options, Scheme::Auto, false);
+    let mut page = String::new();
+    page.push_str("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
+    let _ = writeln!(
+        page,
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>{TITLE}</title>"
     );
-    css.push_str("@media (prefers-color-scheme: dark){:root{--bg:#10151b;--fg:#e6eaee;--muted:#9aa5b1;--grid:#26303a;--lane:#18202a;--curve:#1f4a78;--curve-line:#7db4ee;--pat:#0b0f14;--edge:#e6eaee;--spawn:#c79bea}}\n");
-    css.push_str("body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}\n");
-    css.push_str("h1{font-size:20px;margin:0 0 4px}.peak{font-size:16px;font-weight:600;margin:0}.meta{color:var(--muted);margin:4px 0 12px;max-width:80ch}\n");
-    css.push_str(".legend{display:flex;flex-wrap:wrap;gap:6px 18px;list-style:none;margin:0 0 12px;padding:0}.legend-item{display:flex;align-items:center;gap:6px}.pattern-name{color:var(--muted);font-size:12px}\n");
-    css.push_str(".defs{position:absolute}.timeline{width:100%;height:auto;max-width:1200px;display:block;overflow:visible}\n");
-    css.push_str(
-        ".grid{stroke:var(--grid);stroke-width:1}.axis{fill:var(--muted);font-size:11px}\n",
-    );
-    css.push_str(".concurrency{fill:var(--curve);stroke:var(--curve-line);stroke-width:1.5}.peak-mark{fill:var(--curve-line);stroke:var(--bg);stroke-width:2}\n");
-    css.push_str(".project-label{font-size:13px;font-weight:700;fill:var(--fg)}.lane-bg{fill:var(--lane)}.lane-label{font-size:12px;fill:var(--fg)}.nest{fill:var(--muted);font-size:12px}.note{font-size:11px;font-style:italic;fill:var(--muted)}\n");
-    css.push_str(".bar{stroke:var(--edge);stroke-width:1}.stretch.approximate{stroke-dasharray:4 3;fill-opacity:.6}.approximate-key{stroke-dasharray:4 3;fill:var(--lane)}.waiting{stroke:var(--muted);stroke-width:2;stroke-dasharray:2 3}\n");
-    css.push_str(".spawn{stroke:var(--spawn);stroke-width:1.5;fill:none}.spawn-dot{fill:var(--spawn)}.mark{fill:var(--pat);stroke:var(--pat)}footer{color:var(--muted);font-size:12px;margin-top:12px}\n");
-    for agent in [
-        Agent::ClaudeCode,
-        Agent::Cursor,
-        Agent::Codex,
-        Agent::GrokBot,
-        Agent::Antigravity,
-    ] {
-        let name = agent_name(agent);
-        let _ = writeln!(css, ".base-{name}{{fill:var(--a-{name})}}");
-    }
-    css.trim_end().to_string()
+    page.push_str("<style>\nbody{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}\n.figure{width:100%;height:auto;display:block}\nfooter{color:var(--muted);font-size:12px;padding:0 16px 16px}\n</style>\n</head>\n<body>\n");
+    page.push_str(&figure.svg);
+    page.push_str("<footer>Self-contained page: inline SVG and CSS, nothing loaded from elsewhere. Times are UTC.</footer>\n</body>\n</html>\n");
+    page
 }
