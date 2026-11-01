@@ -362,7 +362,7 @@ fn run_with_output_path(world: &mut BotSpyWorld) {
 // ---- reading the page back -------------------------------------------
 
 /// The value of `name="..."` inside one tag's text.
-fn attr(tag: &str, name: &str) -> Option<String> {
+pub(crate) fn attr(tag: &str, name: &str) -> Option<String> {
     let needle = format!(" {name}=\"");
     let start = tag.find(&needle)? + needle.len();
     let end = tag[start..].find('"')? + start;
@@ -370,7 +370,7 @@ fn attr(tag: &str, name: &str) -> Option<String> {
 }
 
 /// Every opening tag that starts with `prefix`, in page order.
-fn tags(html: &str, prefix: &str) -> Vec<String> {
+pub(crate) fn tags(html: &str, prefix: &str) -> Vec<String> {
     html.match_indices(prefix)
         .filter_map(|(start, _)| {
             let end = html[start..].find('>')? + start;
@@ -1025,7 +1025,7 @@ fn error_names(world: &mut BotSpyWorld, flag: String) {
     );
 }
 
-fn view_box_of(svg: &str) -> [f64; 4] {
+pub(crate) fn view_box_of(svg: &str) -> [f64; 4] {
     let root = tags(svg, "<svg ").remove(0);
     let numbers: Vec<f64> = attr(&root, "viewBox")
         .expect("a viewBox")
@@ -1038,7 +1038,7 @@ fn view_box_of(svg: &str) -> [f64; 4] {
 /// The extent `[left, top, right, bottom]` of everything drawn, read back
 /// from the SVG text. A glyph reaches 0.8 of its size above the baseline
 /// and 0.25 below; text width is a 0.58-of-size estimate per character.
-fn drawn_extent(svg: &str) -> [f64; 4] {
+pub(crate) fn drawn_extent(svg: &str) -> [f64; 4] {
     let drawn = &svg[svg.find("</defs>").expect("defs")..];
     let num = |tag: &str, name: &str| -> f64 {
         attr(tag, name)
@@ -1164,7 +1164,7 @@ fn padding_is_even(world: &mut BotSpyWorld) {
     );
 }
 
-fn png_size(bytes: &[u8]) -> (u32, u32) {
+pub(crate) fn png_size(bytes: &[u8]) -> (u32, u32) {
     assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "not a PNG");
     let read = |at: usize| u32::from_be_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
     (read(16), read(20))
