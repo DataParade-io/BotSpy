@@ -121,6 +121,8 @@ pub struct BotSpyWorld {
     pub cur_cli_root: Option<std::path::PathBuf>,
     /// The Cursor CLI source watching that root.
     pub cur_cli_source: Option<botspy::adapters::cursor::CursorCliSource>,
+    /// The real folder a Cursor CLI project name was built from.
+    pub cur_real_folder: Option<std::path::PathBuf>,
     /// Result of the most recent Cursor CLI discovery.
     pub cur_cli_discovery: Option<botspy::adapters::cursor::CursorCliDiscovery>,
     /// Result of the most recent Cursor CLI extraction.

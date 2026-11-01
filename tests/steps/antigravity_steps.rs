@@ -666,3 +666,66 @@ fn checkpoint_step(world: &mut BotSpyWorld) {
         .messages;
     assert!(messages[5].is_compaction_summary);
 }
+
+// ---- working directory ---------------------------------------------------
+
+#[given(
+    regex = r#"^a current-schema Antigravity summaries index whose conversation "([^"]+)" has the workspaces? (.+)$"#
+)]
+fn index_with_workspaces(world: &mut BotSpyWorld, id: String, uris: String) {
+    let root = new_root(world);
+    write_current_summaries(&root, &id, &[]);
+    let uris: Vec<&str> = uris
+        .split(" and ")
+        .map(|uri| uri.trim_matches('"'))
+        .collect();
+    let conn = open_store(&root.join("conversation_summaries.db"));
+    conn.execute(
+        "UPDATE conversation_summaries SET workspace_uris = ?1 WHERE conversation_id = ?2",
+        rusqlite::params![serde_json::to_string(&uris).expect("json"), id],
+    )
+    .expect("set workspace_uris");
+    world.ag_source = Some(AntigravitySource::new(root));
+}
+
+#[then(regex = r#"^session "([^"]+)" has the working directory "([^"]+)"$"#)]
+fn summary_cwd(world: &mut BotSpyWorld, id: String, cwd: String) {
+    let summary = world
+        .discovered
+        .iter()
+        .find(|summary| summary.id == id)
+        .expect("session not discovered");
+    assert_eq!(summary.metadata.cwd.as_deref(), Some(cwd.as_str()));
+}
+
+#[then(regex = r#"^session "([^"]+)" has no working directory$"#)]
+fn summary_without_cwd(world: &mut BotSpyWorld, id: String) {
+    let summary = world
+        .discovered
+        .iter()
+        .find(|summary| summary.id == id)
+        .expect("session not discovered");
+    assert_eq!(summary.metadata.cwd, None);
+}
+
+#[then(regex = r#"^extracting "([^"]+)" gives the working directory "([^"]+)"$"#)]
+fn extracted_cwd(world: &mut BotSpyWorld, id: String, cwd: String) {
+    assert_eq!(
+        extracted(world, &id).metadata.cwd.as_deref(),
+        Some(cwd.as_str())
+    );
+}
+
+#[then(regex = r#"^extracting "([^"]+)" gives no working directory$"#)]
+fn extracted_without_cwd(world: &mut BotSpyWorld, id: String) {
+    assert_eq!(extracted(world, &id).metadata.cwd, None);
+}
+
+#[then(
+    regex = r#"^extracting "([^"]+)" gives the project "([^"]+)" and the working directory "([^"]+)"$"#
+)]
+fn extracted_project_and_cwd(world: &mut BotSpyWorld, id: String, project: String, cwd: String) {
+    let session = extracted(world, &id);
+    assert_eq!(session.project_id, project);
+    assert_eq!(session.metadata.cwd.as_deref(), Some(cwd.as_str()));
+}

@@ -85,39 +85,94 @@ fn short_id(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
-/// The project as shown. The session's working directory names it when
-/// known; otherwise the last `/` or `\` segment of the id. Claude Code's
-/// dash-encoded paths (`-Users-<name>-Projects-<Repo>`) never show whole:
-/// they keep what follows the last `-Projects-`, or what follows the home
-/// directory's user name, or fall back to a short hash label.
-fn project_label(session: &Session) -> String {
-    let last_segment = |path: &str| {
-        path.rsplit(['/', '\\'])
-            .find(|segment| !segment.is_empty())
-            .map(str::to_string)
+/// `project-xxxxxxxx`: a neutral stand-in derived from `seed`, for values
+/// that must not be shown (a home directory, a UUID or other hash).
+fn neutral_label(seed: &str) -> String {
+    let hash = seed.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    });
+    format!("project-{:08x}", hash >> 32)
+}
+
+/// A UUID (`8-4-4-4-12` hex) or a long run of hex digits: an id, not a name.
+fn looks_like_id(text: &str) -> bool {
+    let hex = |part: &str| part.chars().all(|c| c.is_ascii_hexdigit());
+    let parts: Vec<&str> = text.split('-').collect();
+    let uuid = parts.len() == 5
+        && parts
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(part, len)| part.len() == len && hex(part));
+    uuid || (text.len() >= 16 && hex(text))
+}
+
+/// The last segment of a path, unless that segment is a home directory
+/// itself (`/Users/<name>`, `/home/<name>`, `C:\Users\<name>`), which
+/// would show a user name.
+fn path_label(path: &str) -> Option<String> {
+    let segments: Vec<&str> = path
+        .split(['/', '\\'])
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let home_root = |segment: &str| matches!(segment, "Users" | "home");
+    let is_home = match segments.as_slice() {
+        [root] => home_root(root),
+        [root, _] => home_root(root),
+        [drive, root, _] => drive.ends_with(':') && home_root(root),
+        _ => false,
     };
-    if let Some(name) = session.metadata.cwd.as_deref().and_then(last_segment) {
-        return name;
+    if is_home {
+        return None;
     }
+    segments.last().map(|last| (*last).to_string())
+}
+
+/// The project as shown. The session's working directory names it when
+/// known (its last path segment, so the same folder reads the same through
+/// every agent); otherwise the last `/` or `\` segment of the id.
+/// Dash-encoded paths (Claude Code's `-Users-<name>-Projects-<Repo>`, and
+/// Cursor's without the leading dash) never show whole: they keep what
+/// follows the last `-Projects-`, or what follows the home directory's
+/// user name, or fall back to a short hash label. A home directory and a
+/// UUID or hash are never shown either.
+fn project_label(session: &Session) -> String {
     let id = session.project_id.as_str();
-    let encoded_rest = ["-Users-", "-home-"]
+    let label = project_name(session.metadata.cwd.as_deref(), id);
+    match label {
+        Some(label) if !looks_like_id(&label) => label,
+        _ => neutral_label(
+            session
+                .metadata
+                .cwd
+                .as_deref()
+                .filter(|cwd| !cwd.is_empty())
+                .unwrap_or(id),
+        ),
+    }
+}
+
+fn project_name(cwd: Option<&str>, id: &str) -> Option<String> {
+    if let Some(cwd) = cwd.filter(|cwd| !cwd.is_empty()) {
+        return path_label(cwd);
+    }
+    let encoded_rest = ["-Users-", "-home-", "Users-", "home-"]
         .iter()
-        .find_map(|prefix| id.strip_prefix(prefix));
+        .find_map(|prefix| id.strip_prefix(prefix).map(|rest| (*prefix, rest)))
+        // Without a leading dash, `home-automation` is a plain name: only
+        // `home-<user>-<more>` is an encoded path. `Users-` is always one.
+        .filter(|(prefix, rest)| {
+            prefix.starts_with('-') || *prefix == "Users-" || rest.contains('-')
+        })
+        .map(|(_, rest)| rest);
     let Some(rest) = encoded_rest else {
-        return last_segment(id).unwrap_or_else(|| id.to_string());
+        return path_label(id);
     };
     let lowered = rest.to_lowercase();
     let kept = match lowered.rfind("-projects-") {
         Some(at) => &rest[at + "-projects-".len()..],
         None => rest.split_once('-').map_or("", |(_, tail)| tail),
     };
-    if kept.is_empty() {
-        let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-        });
-        return format!("project-{:08x}", hash >> 32);
-    }
-    kept.to_string()
+    (!kept.is_empty()).then(|| kept.to_string())
 }
 
 fn truncate(text: &str, max: usize) -> String {
@@ -162,9 +217,10 @@ fn select<'a>(sessions: &'a [Session], options: &Options) -> Vec<Lane<'a>> {
         .iter()
         .filter(|session| options.sources.is_empty() || options.sources.contains(&session.agent))
         .filter(|session| {
-            project
-                .as_ref()
-                .is_none_or(|p| session.project_id.to_lowercase().contains(p))
+            project.as_ref().is_none_or(|p| {
+                session.project_id.to_lowercase().contains(p)
+                    || project_label(session).to_lowercase().contains(p)
+            })
         })
         .filter_map(|session| {
             let activity = clip(activity_of(session)?, options.since, options.until)?;
@@ -962,4 +1018,94 @@ pub fn render(sessions: &[Session], options: &Options) -> String {
     page.push_str(&figure.svg);
     page.push_str("<footer>Self-contained page: inline SVG and CSS, nothing loaded from elsewhere. Times are UTC.</footer>\n</body>\n</html>\n");
     page
+}
+
+#[cfg(test)]
+mod tests {
+    // The bdd test crate compiles this file too, without a unit-test
+    // harness, where nothing here is used.
+    #[allow(unused_imports)]
+    use super::*;
+
+    fn label(project_id: &str, cwd: Option<&str>) -> String {
+        let mut session = Session {
+            project_id: project_id.to_string(),
+            ..Session::default()
+        };
+        session.metadata.cwd = cwd.map(str::to_string);
+        project_label(&session)
+    }
+
+    fn is_neutral(label: &str) -> bool {
+        label
+            .strip_prefix("project-")
+            .is_some_and(|hash| hash.len() == 8 && hash.chars().all(|c| c.is_ascii_hexdigit()))
+    }
+
+    #[test]
+    fn the_working_directory_names_the_project() {
+        assert_eq!(label("-x-y", Some("/work/Chattic.us")), "Chattic.us");
+        assert_eq!(label("x", Some("/work/Chattic.us/")), "Chattic.us");
+        assert_eq!(label("x", Some(r"C:\work\Chattic.us")), "Chattic.us");
+    }
+
+    #[test]
+    fn encodings_with_and_without_a_leading_dash_are_cut_down() {
+        assert_eq!(
+            label("-Users-ann-Projects-Widget-Factory", None),
+            "Widget-Factory"
+        );
+        assert_eq!(
+            label("Users-ann-Projects-Widget-Factory", None),
+            "Widget-Factory"
+        );
+        assert_eq!(
+            label("home-ann-Projects-Widget-Factory", None),
+            "Widget-Factory"
+        );
+        assert_eq!(label("Users-ann-code-tool", None), "code-tool");
+        assert_eq!(label("-home-ann-code-tool", None), "code-tool");
+    }
+
+    #[test]
+    fn a_plain_name_that_starts_like_a_home_prefix_is_kept() {
+        assert_eq!(label("home-automation", None), "home-automation");
+        assert_eq!(label("alpha", None), "alpha");
+        assert_eq!(label("/work/alpha", None), "alpha");
+    }
+
+    #[test]
+    fn a_home_directory_is_never_shown() {
+        // Built at run time: these are shapes, not real paths.
+        let user = "ann";
+        for home in [
+            format!("/{}/{user}", "Users"),
+            format!("/{}/{user}", "home"),
+            format!(r"C:\{}\{user}", "Users"),
+            format!("/{}/{user}/", "Users"),
+        ] {
+            assert!(is_neutral(&label("x", Some(&home))), "{home}");
+        }
+        assert!(is_neutral(&label("-Users-ann", None)));
+        assert!(is_neutral(&label("Users-ann", None)));
+        assert!(is_neutral(&label(&format!("/{}/{user}", "Users"), None)));
+    }
+
+    #[test]
+    fn ids_and_hashes_are_never_shown() {
+        let uuid = ["3f2a9c1e", "7b4d", "4e21", "9a6c", "0d5e8f1b2c34"].join("-");
+        assert!(is_neutral(&label(&uuid, None)));
+        assert!(is_neutral(&label("0123456789abcdef0123456789abcdef", None)));
+        assert!(is_neutral(&label(
+            "x",
+            Some("/work/0123456789abcdef0123456789abcdef")
+        )));
+        assert_eq!(label("cafe-babe", None), "cafe-babe");
+    }
+
+    #[test]
+    fn neutral_labels_are_stable_per_seed() {
+        assert_eq!(neutral_label("a"), neutral_label("a"));
+        assert_ne!(neutral_label("a"), neutral_label("b"));
+    }
 }

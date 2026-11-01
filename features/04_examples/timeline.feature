@@ -99,6 +99,36 @@ Feature: Parallel sessions timeline
     Then the project is labelled by what follows its "-Projects-" component
     And the page never contains the home-directory name
 
+  Scenario: An encoded project id with no leading dash is cut down too
+    Given a Cursor session with an unresolved encoded project id that has no leading dash
+    When the timeline example renders
+    Then the project is labelled "Widget-Factory"
+    And the page never contains the home-directory name
+
+  Scenario: A home directory is never shown as a project
+    Given a session whose working directory is the home directory
+    When the timeline example renders
+    Then the project is labelled with a neutral "project-" name
+    And the page never contains the home-directory name
+
+  Scenario: A UUID project id is not shown
+    Given a session whose project id is a UUID and that has no working directory
+    When the timeline example renders
+    Then the project is labelled with a neutral "project-" name
+    And the page never contains the UUID
+
+  Scenario: The same folder seen through three agents is one project
+    Given the folder "Chattic.us" seen through Claude Code, Cursor and the Cursor CLI, each with its own project id
+    When the timeline example renders
+    Then the page has exactly 1 project group
+    And that group is labelled "Chattic.us" and holds 3 lanes
+
+  Scenario: The project filter also matches the folder name
+    Given the folder "Chattic.us" seen through Claude Code, Cursor and the Cursor CLI, each with its own project id
+    When the timeline example renders with "--project chattic.us"
+    Then the page has exactly 1 project group
+    And that group is labelled "Chattic.us" and holds 3 lanes
+
   Scenario: Long project names are ellipsized with the full name on hover
     Given a session in a project with a very long name
     When the timeline example renders

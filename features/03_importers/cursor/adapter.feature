@@ -146,3 +146,28 @@ Feature: Cursor importer
     And I run "botspy import --source cursor --no-embed" against the fixture home
     Then the exit code is 0
     And stdout reports "0 new sessions, 0 updated sessions, 3 unchanged sessions, 0 pruned sessions"
+
+  Scenario: A CLI project directory that names a dotted folder resolves to that folder
+    Given a Cursor projects directory with a CLI session "s1" encoded from the real folder "Chattic.us"
+    When the Cursor importer detects changes
+    Then the discovered CLI session "s1" is in the real folder
+    And the project id stays the encoded name
+    When the Cursor importer extracts "s1"
+    Then the CLI session "s1" is in the real folder
+
+  Scenario: A CLI project directory that names a hyphenated folder resolves to that folder
+    Given a Cursor projects directory with a CLI session "s1" encoded from the real folder "my-app"
+    When the Cursor importer detects changes
+    Then the discovered CLI session "s1" is in the real folder
+
+  Scenario: A CLI project directory that names a folder inside a dotted parent resolves
+    Given a Cursor projects directory with a CLI session "s1" encoded from the real folder "dev.tools/app"
+    When the Cursor importer detects changes
+    Then the discovered CLI session "s1" is in the real folder
+
+  Scenario: A CLI project directory whose folder does not exist leaves the working directory unset
+    Given a Cursor projects directory with a CLI session "s1" encoded from a folder that does not exist
+    When the Cursor importer detects changes
+    Then the discovered CLI session "s1" has no working directory
+    When the Cursor importer extracts "s1"
+    Then the CLI session "s1" has no working directory
