@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- *(cursor)* resolve CLI project folders inside directories that cannot be listed ([#51](https://github.com/DataParade-io/BotSpy/pull/51))
+- *(examples)* give each timeline lane its own row when sessions share an id, and spell sub-agent kinds consistently ([#50](https://github.com/DataParade-io/BotSpy/pull/50))
 - *(adapters)* mark harness-injected user messages so they are not the human's ([#48](https://github.com/DataParade-io/BotSpy/pull/48))
 - *(adapters)* record each session's working directory so projects are named by folder ([#47](https://github.com/DataParade-io/BotSpy/pull/47))
 - *(cursor)* group IDE sessions by workspace, never by title ([#42](https://github.com/DataParade-io/BotSpy/pull/42))
