@@ -10,18 +10,18 @@ Feature: botspy sessions
   Scenario: Sessions from every source are listed together
     When I run "botspy sessions" against the fixture home
     Then the exit code is 0
-    And stdout reports "13 sessions"
+    And stdout reports "14 sessions"
 
   Scenario: JSON output is the session summaries serialized
     When I run "botspy sessions -o json" against the fixture home
     Then the exit code is 0
-    And stdout parses as a JSON array of 13 entries
+    And stdout parses as a JSON array of 14 entries
     And every JSON entry has "id", "agent" and "project_id"
 
   Scenario: NDJSON streams one summary per line
     When I run "botspy sessions -o ndjson" against the fixture home
     Then the exit code is 0
-    And stdout parses as NDJSON with 13 lines
+    And stdout parses as NDJSON with 14 lines
 
   Scenario: --source filters to one source
     When I run "botspy sessions --source claude_code" against the fixture home

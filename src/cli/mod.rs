@@ -29,7 +29,7 @@ use crate::adapter::Adapter;
 use crate::adapters::antigravity::AntigravitySource;
 use crate::adapters::claude_code::ClaudeCodeSource;
 use crate::adapters::codex::CodexSource;
-use crate::adapters::cursor::CursorSource;
+use crate::adapters::cursor::{CursorCliSource, CursorSource};
 use crate::adapters::grok_bot::GrokBotSource;
 use crate::importer::SourceOptions;
 use crate::importer::UnknownSource;
@@ -45,7 +45,18 @@ use crate::store::text::SearchHit;
 use crate::store::{Store, StoreError};
 
 /// Every source the registry knows, in registry order.
-pub const ALL_SOURCES: [&str; 5] = ["claude_code", "cursor", "codex", "grok_bot", "antigravity"];
+///
+/// `cursor` is the IDE's `state.vscdb` store; `cursor_cli` is the Cursor
+/// CLI's agent transcripts under `~/.cursor/projects`. Both belong to the
+/// Cursor agent.
+pub const ALL_SOURCES: [&str; 6] = [
+    "claude_code",
+    "cursor",
+    "cursor_cli",
+    "codex",
+    "grok_bot",
+    "antigravity",
+];
 
 /// Parse and run one `botspy` invocation. The first argument is the
 /// program name, as in `std::env::args_os`.
@@ -915,6 +926,17 @@ fn doctor_facts(names: &[String], options: &SourceOptions) -> Vec<DoctorFacts> {
                         serde_json::to_value(&report).expect("report serializes"),
                     )
                 }
+                "cursor_cli" => {
+                    let report = CursorCliSource::new(root).doctor();
+                    let counts = format!(
+                        "{} transcripts, {} sub-agents",
+                        report.transcripts, report.subagents
+                    );
+                    (
+                        counts,
+                        serde_json::to_value(&report).expect("report serializes"),
+                    )
+                }
                 "codex" => {
                     let report = CodexSource::new(root).doctor();
                     let counts = format!("{} threads", report.threads);
@@ -1110,7 +1132,8 @@ fn import(args: ImportArgs) -> RunOutcome {
         return out;
     }
     let names = match selected_sources(&args.global.source) {
-        Ok(names) => names,
+        Ok(names) if args.global.root.is_some() => names,
+        Ok(names) => with_agent_siblings(names),
         Err(err) => return err.into_outcome(),
     };
     let options = args.global.options();
@@ -1154,6 +1177,20 @@ fn import(args: ImportArgs) -> RunOutcome {
         }
         Err(err) => RunOutcome::fail(3, format!("error: {err}\n")),
     }
+}
+
+/// An import prunes by agent, and `cursor` and `cursor_cli` are one agent:
+/// importing either alone would prune the other's sessions from the store.
+/// Selecting either source imports both (unless `--root` points one
+/// source somewhere explicit).
+fn with_agent_siblings(mut names: Vec<String>) -> Vec<String> {
+    let has = |names: &[String], wanted: &str| names.iter().any(|name| name == wanted);
+    for (a, b) in [("cursor", "cursor_cli"), ("cursor_cli", "cursor")] {
+        if has(&names, a) && !has(&names, b) {
+            names.push(b.to_string());
+        }
+    }
+    names
 }
 
 /// What one import pass would land, computed the way the real pass
@@ -1510,6 +1547,7 @@ pub(crate) fn real_source(
     Ok(match name {
         "claude_code" => Box::new(ClaudeCodeSource::new(root)),
         "cursor" => Box::new(CursorSource::new(root)),
+        "cursor_cli" => Box::new(CursorCliSource::new(root)),
         "codex" => Box::new(CodexSource::new(root)),
         "grok_bot" => Box::new(GrokBotSource::new(root)),
         _ => Box::new(AntigravitySource::new(root)),
@@ -1525,10 +1563,35 @@ pub fn resolved_root(name: &str, options: &SourceOptions) -> PathBuf {
     let home = home_of(options);
     match name {
         "claude_code" => home.join(".claude/projects"),
-        "cursor" => home.join(".cursor/state.vscdb"),
+        "cursor" => cursor_store_path(
+            &home,
+            std::env::consts::OS,
+            // %APPDATA% only stands in for the home when none was chosen.
+            (options.home.is_none() && std::env::var_os("BOTSPY_HOME").is_none())
+                .then(|| std::env::var_os("APPDATA").map(PathBuf::from))
+                .flatten()
+                .as_deref(),
+        ),
+        "cursor_cli" => home.join(".cursor/projects"),
         "codex" => home.join(".codex"),
         "grok_bot" => home.join(".grok/sand-client-persistence"),
         _ => home.join(".gemini/antigravity"),
+    }
+}
+
+/// Where the Cursor IDE keeps its `state.vscdb` store on `platform` (a
+/// `std::env::consts::OS` name): under Application Support on macOS, under
+/// `~/.config` on Linux and other Unixes, and under `%APPDATA%` on Windows
+/// (`appdata`, else `AppData/Roaming` in the home).
+pub fn cursor_store_path(home: &Path, platform: &str, appdata: Option<&Path>) -> PathBuf {
+    let tail = Path::new("Cursor/User/globalStorage/state.vscdb");
+    match platform {
+        "macos" => home.join("Library/Application Support").join(tail),
+        "windows" => appdata
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| home.join("AppData/Roaming"))
+            .join(tail),
+        _ => home.join(".config").join(tail),
     }
 }
 
@@ -1563,7 +1626,7 @@ pub fn agent_name(agent: Agent) -> &'static str {
 pub(crate) fn agent_of(name: &str) -> Option<Agent> {
     match name {
         "claude_code" => Some(Agent::ClaudeCode),
-        "cursor" => Some(Agent::Cursor),
+        "cursor" | "cursor_cli" => Some(Agent::Cursor),
         "codex" => Some(Agent::Codex),
         "grok_bot" => Some(Agent::GrokBot),
         "antigravity" => Some(Agent::Antigravity),

@@ -5,13 +5,14 @@
 //! authoritative `fullConversationHeadersOnly` bubble order, and
 //! `bubbleId:<composerId>:<bubbleId>` bubble values, plus content-addressed
 //! `agentKv:blob:<sha256>` blobs) and the CLI agent transcripts under
-//! `~/.cursor/projects/<encoded-cwd>/agent-transcripts/`. The KV store is a
+//! `~/.cursor/projects/<encoded-cwd>/agent-transcripts/` (nested per
+//! session, sub-agents included, or the older flat files). The KV store is a
 //! hot WAL database: it is read through a snapshot copy, never in place,
 //! never written. Bubble keys are unordered; order comes from the headers
 //! list. Changed composers are re-detected by `lastUpdatedAt`.
 
 use crate::importer::SkipCounter;
-use crate::schema::{Agent, KnownPart, Message, Part, Provenance, Role};
+use crate::schema::{Agent, KnownPart, Message, Part, Provenance, Role, SubagentInfo};
 use crate::session::SessionSummary;
 use crate::snapshot::SnapshotConnection;
 use serde_json::Value;
@@ -52,6 +53,8 @@ pub struct CursorExtraction {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CursorCliDiscovery {
     pub transcripts: usize,
+    /// Sub-agent transcripts, listed as sessions spawned by their parent.
+    pub subagents: usize,
     pub skipped_files: usize,
 }
 
@@ -103,17 +106,58 @@ impl CursorSource {
         serde_json::from_str(&raw).ok()
     }
 
+    /// The composer headers: the `composerHeaders` key of `cursorDiskKV`
+    /// (older stores), else the `composerHeaders` table that current
+    /// stores migrated them to. Each header is normalized to
+    /// `{composerId, lastUpdatedAt, name}`.
+    fn composer_headers(kv: &rusqlite::Connection) -> Option<Vec<Value>> {
+        if let Some(headers) =
+            Self::read_json(kv, "composerHeaders").and_then(|value| value.as_array().cloned())
+        {
+            return Some(headers);
+        }
+        let mut stmt = kv
+            .prepare(
+                "SELECT composerId, COALESCE(lastUpdatedAt, createdAt), value FROM composerHeaders",
+            )
+            .ok()?;
+        let rows = stmt
+            .query_map([], |row| {
+                let value: Option<String> = row.get(2)?;
+                let name = value
+                    .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                    .and_then(|value| {
+                        value
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .unwrap_or_default();
+                Ok(serde_json::json!({
+                    "composerId": row.get::<_, String>(0)?,
+                    "lastUpdatedAt": row.get::<_, Option<i64>>(1)?,
+                    "name": name,
+                }))
+            })
+            .ok()?;
+        Some(rows.flatten().collect())
+    }
+
     /// Discover composers from the headers table, reporting the ones whose
     /// `lastUpdatedAt` changed since the previous discovery.
     pub fn discover(&self) -> (Vec<SessionSummary>, CursorDiscovery) {
+        match self.snapshot() {
+            Ok(kv) => self.discover_in(&kv),
+            Err(_) => (Vec::new(), CursorDiscovery::default()),
+        }
+    }
+
+    /// Discovery over an already-open snapshot, so a caller that needs the
+    /// store more than once pays for one copy of it, not two.
+    fn discover_in(&self, kv: &rusqlite::Connection) -> (Vec<SessionSummary>, CursorDiscovery) {
         let mut summaries = Vec::new();
         let mut stats = CursorDiscovery::default();
-        let Ok(kv) = self.snapshot() else {
-            return (summaries, stats);
-        };
-        let Some(headers) =
-            Self::read_json(&kv, "composerHeaders").and_then(|value| value.as_array().cloned())
-        else {
+        let Some(headers) = Self::composer_headers(kv) else {
             return (summaries, stats);
         };
         for composer in headers {
@@ -148,10 +192,8 @@ impl CursorSource {
 
     /// The doctor report: composers, bubbles, and issues.
     pub fn doctor(&self) -> CursorReport {
-        let (summaries, _) = self.discover();
         let mut report = CursorReport {
             store: self.store.clone(),
-            composers: summaries.len(),
             ..CursorReport::default()
         };
         if !self.store.is_file() {
@@ -164,6 +206,7 @@ impl CursorSource {
                 .push("KV store could not be snapshotted".to_string());
             return report;
         };
+        report.composers = self.discover_in(&kv).0.len();
         report.bubbles = kv
             .query_row(
                 "SELECT COUNT(*) FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'",
@@ -171,7 +214,7 @@ impl CursorSource {
                 |row| row.get::<_, i64>(0),
             )
             .unwrap_or(0) as usize;
-        if Self::read_json(&kv, "composerHeaders").is_none() {
+        if Self::composer_headers(&kv).is_none() {
             report
                 .issues
                 .push("composerHeaders entry is missing or unreadable".to_string());
@@ -320,8 +363,40 @@ fn normalize_bubble(
     Some(Ok(message))
 }
 
-/// The Cursor CLI source over one projects root
-/// (`~/.cursor/projects`), watching `agent-transcripts/*.jsonl`.
+/// Diagnostics over a Cursor projects root.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct CursorCliReport {
+    pub root: PathBuf,
+    pub transcripts: usize,
+    pub subagents: usize,
+    pub issues: Vec<String>,
+}
+
+/// Marker between the parent session id and the sub-agent file stem in a
+/// sub-agent session id, the same shape Claude Code sub-agents use.
+const SUBAGENT_MARK: &str = "--agent-";
+
+/// One transcript file the CLI source found.
+#[derive(Debug, Clone)]
+struct CliTranscript {
+    /// The session id: the file stem, or `<parent>--agent-<stem>`.
+    id: String,
+    path: PathBuf,
+    /// The encoded-cwd project directory name.
+    project: String,
+    /// The session that spawned this one, for a sub-agent.
+    parent: Option<String>,
+}
+
+/// The Cursor CLI source over one projects root (`~/.cursor/projects`),
+/// watching `<project>/agent-transcripts/`. Two layouts are read:
+///
+/// - current: `<session>/<session>.jsonl`, with sub-agents beside it at
+///   `<session>/subagents/<id>.jsonl`;
+/// - older: a flat `<session>.jsonl`.
+///
+/// Sub-agents are sessions of their own, `<parent>--agent-<id>`, spawned
+/// by the parent session.
 #[derive(Debug)]
 pub struct CursorCliSource {
     root: PathBuf,
@@ -338,77 +413,124 @@ impl CursorCliSource {
         &self.root
     }
 
-    fn transcripts(&self) -> Vec<(String, PathBuf)> {
+    fn transcripts(&self) -> Vec<CliTranscript> {
         let mut found = Vec::new();
         let Ok(entries) = std::fs::read_dir(&self.root) else {
             return found;
         };
         for project in entries.flatten() {
-            let transcripts = project.path().join("agent-transcripts");
-            let Ok(files) = std::fs::read_dir(&transcripts) else {
+            let project_name = file_stem(&project.path());
+            let Ok(files) = std::fs::read_dir(project.path().join("agent-transcripts")) else {
                 continue;
             };
             for file in files.flatten() {
                 let path = file.path();
-                if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
-                    let id = path
-                        .file_stem()
-                        .and_then(|stem| stem.to_str())
-                        .unwrap_or_default()
-                        .to_string();
-                    found.push((id, path));
+                let stem = file_stem(&path);
+                if path.is_dir() {
+                    let main = path.join(format!("{stem}.jsonl"));
+                    if main.is_file() {
+                        found.push(CliTranscript {
+                            id: stem.clone(),
+                            path: main,
+                            project: project_name.clone(),
+                            parent: None,
+                        });
+                    }
+                    let Ok(agents) = std::fs::read_dir(path.join("subagents")) else {
+                        continue;
+                    };
+                    for agent in agents.flatten() {
+                        let agent_path = agent.path();
+                        if agent_path.is_file()
+                            && agent_path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+                        {
+                            found.push(CliTranscript {
+                                id: format!("{stem}{SUBAGENT_MARK}{}", file_stem(&agent_path)),
+                                path: agent_path,
+                                project: project_name.clone(),
+                                parent: Some(stem.clone()),
+                            });
+                        }
+                    }
+                } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+                    found.push(CliTranscript {
+                        id: stem,
+                        path,
+                        project: project_name.clone(),
+                        parent: None,
+                    });
                 }
             }
         }
-        found.sort_by(|a, b| a.0.cmp(&b.0));
+        found.sort_by(|a, b| a.id.cmp(&b.id));
         found
     }
 
-    /// Discover CLI transcripts, one session per file.
+    /// Discover CLI transcripts, one session per file; sub-agent
+    /// transcripts are sessions of their own.
     pub fn discover(&self) -> (Vec<SessionSummary>, CursorCliDiscovery) {
         let mut summaries = Vec::new();
         let mut stats = CursorCliDiscovery::default();
-        for (id, path) in self.transcripts() {
+        for transcript in self.transcripts() {
+            if transcript.parent.is_some() {
+                stats.subagents += 1;
+            } else {
+                stats.transcripts += 1;
+            }
             summaries.push(SessionSummary {
-                id,
+                id: transcript.id,
                 agent: Agent::Cursor,
-                project_id: path
-                    .parent()
-                    .and_then(Path::parent)
-                    .and_then(|project| project.file_stem())
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or_default()
-                    .to_string(),
+                project_id: transcript.project,
                 ..SessionSummary::default()
             });
-            stats.transcripts += 1;
         }
         (summaries, stats)
     }
 
-    /// Extract one CLI transcript from its start.
+    /// The doctor report: transcript and sub-agent counts, and issues.
+    pub fn doctor(&self) -> CursorCliReport {
+        let (_, stats) = self.discover();
+        let mut report = CursorCliReport {
+            root: self.root.clone(),
+            transcripts: stats.transcripts,
+            subagents: stats.subagents,
+            issues: Vec::new(),
+        };
+        if !self.root.is_dir() {
+            report.issues.push("projects root is missing".to_string());
+        } else if stats.transcripts + stats.subagents == 0 {
+            report.issues.push("no agent transcripts found".to_string());
+        }
+        report
+    }
+
+    /// Extract one CLI transcript from its start. A sub-agent is asked for
+    /// by its `<parent>--agent-<id>` id and comes back spawned by the
+    /// parent session.
     pub fn extract(&self, session_id: &str) -> Option<CursorCliExtraction> {
-        let path = self
+        let transcript = self
             .transcripts()
             .into_iter()
-            .find(|(id, _)| id == session_id)
-            .map(|(_, path)| path)?;
+            .find(|transcript| transcript.id == session_id)?;
+        let path = transcript.path;
         let text = std::fs::read_to_string(&path).ok()?;
         let mut session = crate::session::Session {
             id: session_id.to_string(),
             agent: Agent::Cursor,
-            project_id: path
-                .parent()
-                .and_then(Path::parent)
-                .and_then(|project| project.file_stem())
-                .and_then(|stem| stem.to_str())
-                .unwrap_or_default()
-                .to_string(),
+            project_id: transcript.project,
+            file_modified_at: file_modified_at(&path),
             ..crate::session::Session::default()
         };
+        if let Some(parent) = transcript.parent {
+            session.parent_id = Some(parent);
+            session.subagent = Some(SubagentInfo {
+                kind: "subagent".to_string(),
+                nesting_depth: None,
+            });
+        }
         let mut good = 0;
         let mut skipped = SkipCounter::default();
-        for line in text.lines() {
+        for (line_index, line) in text.lines().enumerate() {
             let trimmed = line.trim();
             if trimmed.is_empty() {
                 continue;
@@ -418,24 +540,14 @@ impl CursorCliSource {
                 continue;
             };
             let Some(role) = record.get("role").and_then(Value::as_str) else {
+                // Status records and the like: not part of the conversation.
                 skipped.unknown += 1;
                 continue;
             };
-            let Some(text) = record.get("text").and_then(Value::as_str) else {
+            let parts = cli_parts(&record, line_index);
+            if parts.is_empty() {
                 skipped.malformed += 1;
                 continue;
-            };
-            let mut parts = vec![Part::Known(KnownPart::Text {
-                text: text.to_string(),
-                extra: None,
-            })];
-            if let Some(thinking) = record.get("thinking").and_then(Value::as_str) {
-                parts.push(Part::Known(KnownPart::Thinking {
-                    text: Some(thinking.to_string()),
-                    signature: None,
-                    encrypted: None,
-                    extra: None,
-                }));
             }
             session.messages.push(Message {
                 role: match role {
@@ -450,6 +562,7 @@ impl CursorCliSource {
                 provenance: Some(Provenance {
                     source_file: path.display().to_string(),
                     record_type: Some("message".to_string()),
+                    ordinal: Some(line_index as u64),
                     ..Provenance::default()
                 }),
                 ..Message::default()
@@ -462,6 +575,82 @@ impl CursorCliSource {
             skipped,
         })
     }
+}
+
+/// The parts of one CLI record: the current `{role, message: {content}}`
+/// shape (content is text, or a list of `text` and `tool_use` blocks), or
+/// the older flat `{role, text, thinking}` shape.
+fn cli_parts(record: &Value, line_index: usize) -> Vec<Part> {
+    let mut parts = Vec::new();
+    let text_part = |text: &str| {
+        Part::Known(KnownPart::Text {
+            text: text.to_string(),
+            extra: None,
+        })
+    };
+    if let Some(text) = record.get("text").and_then(Value::as_str) {
+        parts.push(text_part(text));
+    }
+    if let Some(thinking) = record.get("thinking").and_then(Value::as_str) {
+        parts.push(Part::Known(KnownPart::Thinking {
+            text: Some(thinking.to_string()),
+            signature: None,
+            encrypted: None,
+            extra: None,
+        }));
+    }
+    match record
+        .get("message")
+        .and_then(|message| message.get("content"))
+    {
+        Some(Value::String(text)) => parts.push(text_part(text)),
+        Some(Value::Array(blocks)) => {
+            for (index, block) in blocks.iter().enumerate() {
+                match block.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        if let Some(text) = block.get("text").and_then(Value::as_str) {
+                            parts.push(text_part(text));
+                        }
+                    }
+                    Some("tool_use") => parts.push(Part::Known(KnownPart::ToolCall {
+                        id: format!("line-{line_index}-{index}"),
+                        name: block
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        arguments: block
+                            .get("input")
+                            .cloned()
+                            .map(crate::schema::ToolArguments::from_value),
+                        status: None,
+                        extra: None,
+                    })),
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    parts
+}
+
+fn file_stem(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The file's own mtime as RFC 3339 UTC, for sessions whose records carry
+/// no timestamps. It is never copied into message timestamps.
+fn file_modified_at(path: &Path) -> Option<String> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    let millis = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis() as i64;
+    Some(crate::adapters::codex::rfc3339_utc(millis)).filter(|stamp| !stamp.is_empty())
 }
 
 #[cfg(test)]
@@ -729,5 +918,153 @@ mod tests {
             Some(Part::Known(KnownPart::Thinking { .. }))
         ));
         let _ = digest_files(&[&root]);
+    }
+
+    fn nested_root(tag: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("botspy-cur-nest-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    const NESTED_RECORDS: &str = concat!(
+        r#"{"role":"user","message":{"content":[{"type":"text","text":"hello"}]}}"#,
+        "\n",
+        r#"{"role":"assistant","message":{"content":[{"type":"text","text":"On it."},{"type":"tool_use","name":"Shell","input":{"command":"ls"}}]}}"#,
+        "\n",
+        r#"{"type":"turn","status":"done"}"#,
+        "\n",
+    );
+
+    #[test]
+    fn nested_cli_layout_and_subagents_are_sessions() {
+        let root = nested_root("layout");
+        let dir = root.join("proj-a").join("agent-transcripts").join("s1");
+        std::fs::create_dir_all(dir.join("subagents")).unwrap();
+        std::fs::write(dir.join("s1.jsonl"), NESTED_RECORDS).unwrap();
+        std::fs::write(dir.join("subagents").join("c1.jsonl"), NESTED_RECORDS).unwrap();
+        std::fs::write(dir.join("subagents").join("notes.txt"), "junk").unwrap();
+        let source = CursorCliSource::new(&root);
+        let (summaries, stats) = source.discover();
+        let ids: Vec<&str> = summaries.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["s1", "s1--agent-c1"]);
+        assert_eq!((stats.transcripts, stats.subagents), (1, 1));
+        assert_eq!(summaries[1].project_id, "proj-a");
+        let doctor = source.doctor();
+        assert_eq!((doctor.transcripts, doctor.subagents), (1, 1));
+        assert!(doctor.issues.is_empty());
+
+        let parent = source.extract("s1").unwrap();
+        assert_eq!(parent.session.parent_id, None);
+        assert_eq!(parent.session.subagent, None);
+        assert_eq!(parent.good, 2);
+        assert_eq!(
+            parent.skipped.unknown, 1,
+            "the status record is not a message"
+        );
+        let child = source.extract("s1--agent-c1").unwrap().session;
+        assert_eq!(child.parent_id.as_deref(), Some("s1"));
+        let info = child.subagent.unwrap();
+        assert_eq!(info.kind, "subagent");
+        assert_eq!(info.nesting_depth, None);
+        assert_eq!(child.project_id, "proj-a");
+    }
+
+    #[test]
+    fn current_records_map_text_and_tool_use_blocks() {
+        let root = nested_root("records");
+        let dir = root.join("proj-a").join("agent-transcripts").join("s1");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("s1.jsonl"), NESTED_RECORDS).unwrap();
+        let session = CursorCliSource::new(&root).extract("s1").unwrap().session;
+        assert_eq!(session.messages[0].role, Role::User);
+        assert_eq!(session.messages[1].role, Role::Assistant);
+        assert!(matches!(
+            session.messages[1].parts.as_slice(),
+            [
+                Part::Known(KnownPart::Text { .. }),
+                Part::Known(KnownPart::ToolCall { name, .. })
+            ] if name == "Shell"
+        ));
+    }
+
+    #[test]
+    fn sessions_without_timestamps_carry_the_file_mtime_only() {
+        let root = nested_root("mtime");
+        let dir = root.join("proj-a").join("agent-transcripts").join("s1");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("s1.jsonl"), NESTED_RECORDS).unwrap();
+        let session = CursorCliSource::new(&root).extract("s1").unwrap().session;
+        let mtime = session.file_modified_at.expect("file mtime recorded");
+        assert!(mtime.starts_with("20") && mtime.ends_with('Z'), "{mtime}");
+        assert!(session.messages.iter().all(|m| m.timestamp.is_none()));
+        assert!(session.started_at.is_empty());
+    }
+
+    #[test]
+    fn flat_and_nested_layouts_can_share_a_root() {
+        let root = nested_root("mixed");
+        let flat = root.join("proj-a").join("agent-transcripts");
+        std::fs::create_dir_all(flat.join("n1")).unwrap();
+        std::fs::write(
+            flat.join("old.jsonl"),
+            "{\"role\":\"user\",\"text\":\"hi\"}\n",
+        )
+        .unwrap();
+        std::fs::write(flat.join("n1").join("n1.jsonl"), NESTED_RECORDS).unwrap();
+        // A session directory without its main transcript is not a session.
+        std::fs::create_dir_all(flat.join("empty")).unwrap();
+        let source = CursorCliSource::new(&root);
+        let ids: Vec<String> = source.discover().0.into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, ["n1", "old"]);
+        assert_eq!(source.extract("old").unwrap().good, 1);
+        assert_eq!(source.extract("n1").unwrap().good, 2);
+        assert!(source.extract("empty").is_none());
+    }
+
+    #[test]
+    fn composers_are_discovered_from_the_migrated_headers_table() {
+        let store = temp_store("table");
+        let conn = open_store(&store);
+        conn.execute(
+            "CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, \
+             createdAt INTEGER, lastUpdatedAt INTEGER, isSubagent INTEGER, value TEXT)",
+            [],
+        )
+        .unwrap();
+        for (id, created, updated, name) in [
+            ("composer-1", 100, Some(500), "named"),
+            ("composer-2", 200, None, ""),
+        ] {
+            conn.execute(
+                "INSERT INTO composerHeaders VALUES (?1, 'w', ?2, ?3, 0, ?4)",
+                rusqlite::params![
+                    id,
+                    created,
+                    updated,
+                    json!({"composerId": id, "name": name}).to_string()
+                ],
+            )
+            .unwrap();
+        }
+        put(
+            &conn,
+            "composerData:composer-1",
+            &json!({"name": "named", "fullConversationHeadersOnly": [{"bubbleId": "b1"}]}),
+        );
+        put(
+            &conn,
+            "bubbleId:composer-1:b1",
+            &json!({"type": 1, "text": "hi"}),
+        );
+        drop(conn);
+        let source = CursorSource::new(&store);
+        let (summaries, stats) = source.discover();
+        assert_eq!(stats.composers, 2);
+        assert_eq!(summaries[0].project_id, "named");
+        assert_eq!(stats.changed.len(), 2);
+        assert_eq!(source.extract("composer-1").unwrap().good, 1);
+        assert!(source.doctor().issues.is_empty());
     }
 }

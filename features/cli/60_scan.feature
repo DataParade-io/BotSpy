@@ -25,21 +25,21 @@ Feature: botspy scan
   Scenario: A default scan fills the store from every source
     When I run "botspy scan --once" with BOTSPY_HOME at the fixture home
     Then the exit code is 0
-    And the fixture store holds 12 sessions
+    And the fixture store holds 13 sessions
     And stdout contains "claude_code", "cursor", "codex", "grok_bot" and "antigravity"
-    And stdout reports "12 added"
+    And stdout reports "13 added"
 
   Scenario: The scan report names the store and its elapsed time
     When I run "botspy scan --once -o json --store {out_dir}/scan-meta.db" against the fixture home
     Then the exit code is 0
     And the JSON "store" is "{out_dir}/scan-meta.db"
     And the JSON "elapsed_ms" is more than 0
-    And the JSON totals report "new" 12
+    And the JSON totals report "new" 13
 
   Scenario: A dry-run scan reports what would change and writes nothing
     When I run "botspy scan --once --dry-run" with BOTSPY_HOME at the fixture home
     Then the exit code is 0
-    And stdout reports "12 added"
+    And stdout reports "13 added"
     And stdout reports "dry run"
     And the fixture store holds 0 sessions
 
@@ -47,9 +47,10 @@ Feature: botspy scan
     When I run "botspy scan --once -o json" with BOTSPY_HOME at the fixture home
     Then the exit code is 0
     And stdout parses as a JSON object
-    And the JSON "adapters" list has 5 entries
+    And the JSON "adapters" list has 6 entries
     And the JSON scan source "claude_code" has "discovered" 4 and "added_sessions" 4
     And the JSON scan source "cursor" has "discovered" 2 and "added_sessions" 2
+    And the JSON scan source "cursor_cli" has "discovered" 1 and "added_sessions" 1
     And the JSON scan source "codex" has "discovered" 2 and "added_sessions" 2
     And the JSON scan source "grok_bot" has "discovered" 3 and "added_sessions" 2
     And the JSON scan source "grok_bot" has "errors" 1
@@ -58,7 +59,7 @@ Feature: botspy scan
   Scenario: NDJSON streams one entry per source
     When I run "botspy scan --once -o ndjson" with BOTSPY_HOME at the fixture home
     Then the exit code is 0
-    And stdout parses as NDJSON with 5 lines
+    And stdout parses as NDJSON with 6 lines
 
   Scenario: JSON output counts the messages the scan brought in
     When I run "botspy scan --once --source claude_code -o json --store {out_dir}/scan-msgs.db" against the fixture home
@@ -94,15 +95,15 @@ Feature: botspy scan
   Scenario: --since accepts a duration that reaches back past every session
     When I run "botspy scan --once --since 10000w --store {out_dir}/scan-old.db" against the fixture home
     Then the exit code is 0
-    And the store at "{out_dir}/scan-old.db" holds 12 sessions
+    And the store at "{out_dir}/scan-old.db" holds 13 sessions
 
   Scenario: A cutoff scan never deletes the stored sessions it skipped
     When I run "botspy scan --once --store {out_dir}/scan-keep.db" against the fixture home
     Then the exit code is 0
-    And the store at "{out_dir}/scan-keep.db" holds 12 sessions
+    And the store at "{out_dir}/scan-keep.db" holds 13 sessions
     When I run "botspy scan --once --since 2999-01-01T00:00:00Z --store {out_dir}/scan-keep.db -o json" against the fixture home
     Then the exit code is 0
-    And the store at "{out_dir}/scan-keep.db" holds 12 sessions
+    And the store at "{out_dir}/scan-keep.db" holds 13 sessions
     And the JSON scan source "claude_code" has "skipped_sessions" 4
 
   Scenario: A source with no sessions is reported with its zero row
@@ -133,7 +134,7 @@ Feature: botspy scan
     When I scan "botspy scan --store {out_dir}/scan-loop.db --interval 1" in a loop for 2 ticks with BOTSPY_HOME at the fixture home
     Then the exit code is 0
     And stdout reports the passes 1, 2 and 3 in order
-    And the store at "{out_dir}/scan-loop.db" holds 12 sessions
+    And the store at "{out_dir}/scan-loop.db" holds 13 sessions
 
   Scenario: The interval defaults to 60 seconds
     When I run "botspy scan --help"
@@ -143,9 +144,9 @@ Feature: botspy scan
   Scenario: --once runs exactly one pass and exits, for scripts and CI
     When I run "botspy scan --once" with BOTSPY_HOME at the fixture home
     Then the exit code is 0
-    And stdout reports "12 added"
+    And stdout reports "13 added"
     And stdout does not contain "pass 2"
-    And the fixture store holds 12 sessions
+    And the fixture store holds 13 sessions
 
   Scenario: An interval below one second is a usage error
     When I run "botspy scan --interval 0 --once"
@@ -156,13 +157,13 @@ Feature: botspy scan
     When I scan "botspy scan --store {out_dir}/scan-sig.db --interval 1" in a loop for 1 tick and then the interrupt lands with BOTSPY_HOME at the fixture home
     Then the exit code is 130
     And stdout reports the passes 1 and 2 in order
-    And the store at "{out_dir}/scan-sig.db" holds 12 sessions
+    And the store at "{out_dir}/scan-sig.db" holds 13 sessions
 
   Scenario: An interrupt during a pass lets the pass finish and commit, then stops
     When I scan "botspy scan --store {out_dir}/scan-sig2.db --interval 1" and the interrupt lands during the first pass with BOTSPY_HOME at the fixture home
     Then the exit code is 130
     And stdout reports the passes 1 in order
-    And the store at "{out_dir}/scan-sig2.db" holds 12 sessions
+    And the store at "{out_dir}/scan-sig2.db" holds 13 sessions
 
   Scenario: A pass with adapter errors reports them and the loop keeps scanning
     When I scan "botspy scan --store {out_dir}/scan-err.db --interval 1" in a loop for 2 ticks with BOTSPY_HOME at the fixture home
@@ -185,12 +186,12 @@ Feature: botspy scan
   Scenario: A loop scan streams one line per source per pass in NDJSON
     When I scan "botspy scan --store {out_dir}/scan-loopnd.db --interval 1 -o ndjson" in a loop for 1 tick with BOTSPY_HOME at the fixture home
     Then the exit code is 0
-    And stdout parses as NDJSON with 10 lines
+    And stdout parses as NDJSON with 12 lines
 
   Scenario: A loop scan never prunes the sessions it skips
     When I run "botspy scan --once --store {out_dir}/scan-nokeep.db" against the fixture home
     Then the exit code is 0
-    And the store at "{out_dir}/scan-nokeep.db" holds 12 sessions
+    And the store at "{out_dir}/scan-nokeep.db" holds 13 sessions
     When I scan "botspy scan --store {out_dir}/scan-nokeep.db --interval 1 --since 2999-01-01T00:00:00Z" in a loop for 1 tick with BOTSPY_HOME at the fixture home
     Then the exit code is 0
-    And the store at "{out_dir}/scan-nokeep.db" holds 12 sessions
+    And the store at "{out_dir}/scan-nokeep.db" holds 13 sessions

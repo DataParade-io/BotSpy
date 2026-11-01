@@ -105,7 +105,7 @@ and
 | Agent | Source name | Reads |
 |---|---|---|
 | Claude Code | `claude_code` | `~/.claude/projects/` — per-session JSONL transcripts |
-| Cursor | `cursor` | `~/.cursor/state.vscdb` and CLI agent transcripts, read through a WAL-safe snapshot copy |
+| Cursor | `cursor` | the IDE `state.vscdb` store (application data directory) and, as `cursor_cli`, the CLI agent transcripts, read through a WAL-safe snapshot copy |
 | Codex | `codex` | `~/.codex/sessions/` rollout JSONL plus the thread index at the root |
 | Grok Bot | `grok_bot` | `~/.grok/sand-client-persistence/` entry logs, plus roster and cloud-agent files |
 | Antigravity | `antigravity` | `~/.gemini/antigravity/` summaries DB, brain transcripts, and payload databases, read through snapshot copies |
@@ -175,14 +175,15 @@ Add `--no-truncate` in human mode for full ids and paths.
 $ botspy sources --home /tmp/demo
 SOURCE        ROOT                                        SESSIONS  STATUS
 claude_code   /tmp/demo/.claude/projects                  4         ok
-cursor        /tmp/demo/.cursor/state.vscdb               2         ok
+cursor        …/.config/Cursor/User/globalStorage/state.vscdb  2    ok
+cursor_cli    /tmp/demo/.cursor/projects                  1         ok
 codex         /tmp/demo/.codex                            2         ok
 grok_bot      …mp/demo/.grok/sand-client-persistence      3         ok
 antigravity   /tmp/demo/.gemini/antigravity               2         ok
 ```
 
 A source whose files are missing is listed as `missing`, never hidden.
-Restrict to one source with `--source claude_code`; point at a different
+The IDE store path above is the Linux one; macOS uses `Library/Application Support/Cursor/User/globalStorage/` and Windows uses `%APPDATA%`. Restrict to one source with `--source claude_code`; point at a different
 home with `--home` (or the `BOTSPY_HOME` environment variable).
 
 ### Check the health of your sources

@@ -1297,3 +1297,26 @@ fn page_embeds_figure(world: &mut BotSpyWorld) {
         assert!(figure.contains(part), "the figure lacks {part}");
     }
 }
+
+// ---- Cursor CLI sessions -----------------------------------------------
+
+#[when(regex = r#"^the examples read the data root's Cursor CLI sessions into the timeline$"#)]
+fn examples_read_cursor_cli(world: &mut BotSpyWorld) {
+    let data = world.cur_data_root.clone().expect("no Cursor data root");
+    let sessions = timeline_example::common::collect_sessions(&data);
+    assert_eq!(sessions.len(), 3, "the examples missed CLI sessions");
+    world.timeline.sessions.extend(sessions);
+    render(world, &[]);
+}
+
+#[then(regex = r#"^lane "([^"]+)" shows one span marked approximate$"#)]
+fn named_lane_approximate(world: &mut BotSpyWorld, id: String) {
+    let views = lanes(html(world));
+    let view = lane(&views, &id);
+    let stretches = view.stretches();
+    assert_eq!(stretches.len(), 1, "lane {id} has no single span");
+    assert_eq!(
+        attr(&stretches[0], "data-approximate").as_deref(),
+        Some("true")
+    );
+}

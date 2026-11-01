@@ -1,7 +1,7 @@
 title: Cursor source adapter
 
 store: {
-  label: "Sensitive data: Cursor store\n~/.cursor/state.vscdb\n(+ -wal, -shm)\nkey-value table: cursorDiskKV"
+  label: "Sensitive data: Cursor store\nstate.vscdb in the application data\ndirectory (+ -wal, -shm)\nmacOS: ~/Library/Application Support/Cursor/User/globalStorage\nLinux: ~/.config/Cursor/User/globalStorage\nWindows: %APPDATA%/Cursor/User/globalStorage\nkey-value table: cursorDiskKV"
   class: sensitive
 }
 
@@ -11,7 +11,7 @@ snap: {
 }
 
 cli_dir: {
-  label: "Sensitive data: CLI transcripts\n~/.cursor/projects/\n<encoded-cwd>/agent-transcripts/*.jsonl"
+  label: "Sensitive data: CLI transcripts\n~/.cursor/projects/<encoded-cwd>/agent-transcripts/\ncurrent: <session>/<session>.jsonl\n         <session>/subagents/<id>.jsonl\nolder: <session>.jsonl"
   class: sensitive
 }
 
@@ -26,7 +26,7 @@ bubbles: {
 }
 
 cli_map: {
-  label: "CLI transcript mapping\n\nrole assistant → Assistant; other roles → User\nfields: text, thinking, timestamp\none session per .jsonl file"
+  label: "CLI transcript mapping\n\nrole assistant → Assistant; other roles → User\nmessage.content: text blocks → Text, tool_use blocks → ToolCall\n(older records: text, thinking, timestamp)\nno record timestamps: file mtime in file_modified_at\nsub-agent file → session <parent>--agent-<id>\nwith parent_id + sub-agent info"
   class: tool
 }
 
