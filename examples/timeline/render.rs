@@ -449,29 +449,34 @@ fn subagent_short_id(id: &str) -> String {
 }
 
 /// A session as named in labels and tooltips: a sub-agent by its kind and
-/// own id ("Explore a3f9c2"), anything else by agent and short id.
-fn session_name(session: &Session) -> String {
+/// own id ("Explore a3f9c2"), anything else by agent and short id. Without
+/// `ids` the name is the kind or agent alone.
+fn session_name(session: &Session, ids: bool) -> String {
+    let name = match &session.subagent {
+        Some(info) => capitalised(&info.kind),
+        None => agent_label(session.agent).to_string(),
+    };
+    if !ids {
+        return name;
+    }
     match &session.subagent {
-        Some(info) => format!(
-            "{} {}",
-            capitalised(&info.kind),
-            subagent_short_id(&session.id)
-        ),
-        None => format!("{} {}", agent_label(session.agent), short_id(&session.id)),
+        Some(_) => format!("{name} {}", subagent_short_id(&session.id)),
+        None => format!("{name} {}", short_id(&session.id)),
     }
 }
 
 /// The text of a lane label: sub-agents carry their own arrow. A long
 /// sub-agent kind is cut, never its id, so sibling lanes stay distinct.
-fn lane_label_text(session: &Session) -> String {
+fn lane_label_text(session: &Session, ids: bool) -> String {
     match &session.subagent {
+        Some(info) if !ids => format!("↳ {}", truncate(&capitalised(&info.kind), 18)),
         Some(info) => {
             let id = subagent_short_id(&session.id);
             // "↳ " + kind + " " + id fits the 20-character label.
             let room = 20usize.saturating_sub(3 + id.chars().count());
             format!("↳ {} {id}", truncate(&capitalised(&info.kind), room))
         }
-        None => truncate(&session_name(session), 20),
+        None => truncate(&session_name(session, ids), 20),
     }
 }
 
@@ -724,7 +729,7 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
                 .then_some(session.metadata.title.as_deref())
                 .flatten()
                 .filter(|title| !title.is_empty());
-            let mut label = lane_label_text(session);
+            let mut label = lane_label_text(session, !options.no_ids);
             if let Some(title) = title {
                 label.push_str(" · ");
                 label.push_str(&truncate(
@@ -766,9 +771,13 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
                 mid + 4.0,
                 esc(&label),
                 esc(&format!(
-                    "{} session {}{}{}",
+                    "{} session{}{}{}",
                     agent_label(session.agent),
-                    session.id,
+                    if options.no_ids {
+                        String::new()
+                    } else {
+                        format!(" {}", session.id)
+                    },
                     match &session.subagent {
                         Some(sub) => format!(", sub-agent ({})", sub.kind),
                         None if session.fork.is_some() => ", fork".to_string(),
@@ -783,7 +792,11 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
                     "<text class=\"note\" x=\"{indent:.1}\" y=\"{:.1}\" font-size=\"11\" data-missing-parent=\"{}\">spawned by {}, which is not in this view</text>",
                     top + row_h - 4.0,
                     esc(missing),
-                    esc(&short_id(missing))
+                    if options.no_ids {
+                        "a session".to_string()
+                    } else {
+                        esc(&short_id(missing))
+                    }
                 );
             }
             for (i, stretch) in lane.activity.stretches.iter().enumerate() {
@@ -806,7 +819,7 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
                 let bar_w = (x(stretch.end) - x(stretch.start)).max(3.0);
                 let hover = format!(
                     "{}, {} to {} UTC, {} message{}{}{}",
-                    session_name(session),
+                    session_name(session, !options.no_ids),
                     format_short(stretch.start),
                     format_short(stretch.end),
                     messages,
@@ -878,8 +891,12 @@ pub fn figure(sessions: &[Session], options: &Options, scheme: Scheme, standalon
             esc(parent_id),
             esc(&lane.session.id),
             format_iso(lane.start()),
-            esc(&short_id(parent_id)),
-            esc(&session_name(lane.session)),
+            if options.no_ids {
+                "a session".to_string()
+            } else {
+                esc(&short_id(parent_id))
+            },
+            esc(&session_name(lane.session, !options.no_ids)),
             format_short(lane.start()),
             from + ROW_H / 2.0
         );

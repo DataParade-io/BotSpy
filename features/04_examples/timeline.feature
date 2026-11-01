@@ -205,6 +205,18 @@ Feature: Parallel sessions timeline
     And the lane "parent" is labelled "Claude Code parent"
     And the tooltip of lane "parent--agent-a3f9c2e1b7" holds its full session id and kind
 
+  Scenario: Session ids can be left out of a figure meant for publishing
+    Short session ids help when you are reading your own history, but they
+    are identifiers, and a figure for an article does not need them. With
+    "--no-ids" a lane names only its agent or sub-agent kind, and every id
+    in the page is replaced by a pseudonym so none survives in the markup.
+    Given a sub-agent session "c0ffee01--agent-a3f9c2e1b7" of kind "explore" under session "c0ffee01"
+    When the timeline example renders with "--no-ids"
+    Then the lane "session-1" is labelled "Claude Code"
+    And the lane "session-2" is labelled "↳ Explore"
+    And the page does not contain "a3f9c2"
+    And the page does not contain "c0ffee01"
+
   Scenario: A long sub-agent kind is cut so the sub-agent's own id still shows
     Sibling sub-agents often share a long kind such as "general-purpose".
     Cutting the kind rather than the id keeps their lanes telling apart.

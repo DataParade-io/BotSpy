@@ -12,7 +12,9 @@
 //! list. Changed composers are re-detected by `lastUpdatedAt`.
 
 use crate::importer::SkipCounter;
-use crate::schema::{Agent, KnownPart, Message, Part, Provenance, Role, SubagentInfo};
+use crate::schema::{
+    Agent, KnownPart, Message, Part, Provenance, Role, SessionMetadata, SubagentInfo,
+};
 use crate::session::SessionSummary;
 use crate::snapshot::SnapshotConnection;
 use serde_json::Value;
@@ -78,6 +80,22 @@ pub struct CursorSource {
     cache: Mutex<Option<CachedSnapshot>>,
     /// How many snapshot copies this source has taken.
     copies_taken: AtomicUsize,
+    /// `workspaceId` to workspace folder, filled from `workspaceStorage` the
+    /// first time each id is met. Only hits are kept: a folder never changes
+    /// for an id, but a missing directory may appear later.
+    workspaces: Mutex<BTreeMap<String, String>>,
+}
+
+/// The project every composer falls under when Cursor does not say which
+/// workspace it belongs to. It is never derived from a title.
+pub const NO_WORKSPACE_PROJECT: &str = "cursor-no-workspace";
+
+/// The project of one composer: a stable, non-identifying id, and the
+/// workspace folder when one is known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ComposerProject {
+    project_id: String,
+    cwd: Option<String>,
 }
 
 /// What identifies the state of the store on disk: size and modification
@@ -121,6 +139,7 @@ impl CursorSource {
             observed: Mutex::new(BTreeMap::new()),
             cache: Mutex::new(None),
             copies_taken: AtomicUsize::new(0),
+            workspaces: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -186,38 +205,143 @@ impl CursorSource {
     /// The composer headers: the `composerHeaders` key of `cursorDiskKV`
     /// (older stores), else the `composerHeaders` table that current
     /// stores migrated them to. Each header is normalized to
-    /// `{composerId, lastUpdatedAt, name}`.
+    /// `{composerId, lastUpdatedAt, title, workspaceId, isSubagent,
+    /// subagentTypeName}`. The title is the conversation title: it must
+    /// only ever reach `metadata.title`, never a project.
     fn composer_headers(kv: &rusqlite::Connection) -> Option<Vec<Value>> {
         if let Some(headers) =
             Self::read_json(kv, "composerHeaders").and_then(|value| value.as_array().cloned())
         {
-            return Some(headers);
+            return Some(headers.iter().map(normalize_key_header).collect());
         }
-        let mut stmt = kv
-            .prepare(
-                "SELECT composerId, COALESCE(lastUpdatedAt, createdAt), value FROM composerHeaders",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |row| {
-                let value: Option<String> = row.get(2)?;
-                let name = value
-                    .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-                    .and_then(|value| {
-                        value
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .map(str::to_string)
-                    })
-                    .unwrap_or_default();
-                Ok(serde_json::json!({
-                    "composerId": row.get::<_, String>(0)?,
-                    "lastUpdatedAt": row.get::<_, Option<i64>>(1)?,
-                    "name": name,
-                }))
-            })
-            .ok()?;
-        Some(rows.flatten().collect())
+        Self::table_headers(kv, None)
+    }
+
+    /// One composer's normalized header, from whichever layout holds it.
+    fn composer_header(kv: &rusqlite::Connection, composer_id: &str) -> Option<Value> {
+        if let Some(headers) =
+            Self::read_json(kv, "composerHeaders").and_then(|value| value.as_array().cloned())
+        {
+            return headers.iter().map(normalize_key_header).find(|header| {
+                header.get("composerId").and_then(Value::as_str) == Some(composer_id)
+            });
+        }
+        Self::table_headers(kv, Some(composer_id))?
+            .into_iter()
+            .next()
+    }
+
+    /// Rows of the `composerHeaders` table. Columns that an older table
+    /// lacks read as null, so one query serves every version.
+    fn table_headers(kv: &rusqlite::Connection, only: Option<&str>) -> Option<Vec<Value>> {
+        let columns: Vec<String> = kv
+            .prepare("SELECT name FROM pragma_table_info('composerHeaders')")
+            .ok()?
+            .query_map([], |row| row.get::<_, String>(0))
+            .ok()?
+            .flatten()
+            .collect();
+        let has = |name: &str| columns.iter().any(|column| column == name);
+        if !has("composerId") {
+            return None;
+        }
+        let column = |name: &'static str| if has(name) { name } else { "NULL" };
+        let updated = match (has("lastUpdatedAt"), has("createdAt")) {
+            (true, true) => "COALESCE(lastUpdatedAt, createdAt)",
+            (true, false) => "lastUpdatedAt",
+            (false, true) => "createdAt",
+            (false, false) => "NULL",
+        };
+        let sql = format!(
+            "SELECT composerId, {updated}, {}, {}, {}, {} FROM composerHeaders{}",
+            column("value"),
+            column("workspaceId"),
+            column("isSubagent"),
+            column("subagentTypeName"),
+            if only.is_some() {
+                " WHERE composerId = ?1"
+            } else {
+                ""
+            }
+        );
+        let mut stmt = kv.prepare(&sql).ok()?;
+        let map_row = |row: &rusqlite::Row| {
+            let value: Option<String> = row.get(2)?;
+            let title = value
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                .and_then(|value| {
+                    value
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .unwrap_or_default();
+            Ok(serde_json::json!({
+                "composerId": row.get::<_, String>(0)?,
+                "lastUpdatedAt": row.get::<_, Option<i64>>(1)?,
+                "title": title,
+                "workspaceId": row.get::<_, Option<String>>(3).ok().flatten(),
+                "isSubagent": row.get::<_, Option<i64>>(4).ok().flatten().is_some_and(|flag| flag != 0),
+                "subagentTypeName": row.get::<_, Option<String>>(5).ok().flatten(),
+            }))
+        };
+        let rows = match only {
+            Some(id) => stmt.query_map([id], map_row).ok()?.flatten().collect(),
+            None => stmt.query_map([], map_row).ok()?.flatten().collect(),
+        };
+        Some(rows)
+    }
+
+    /// The `User/workspaceStorage` directory beside this store, when the
+    /// store sits in a `globalStorage` directory. The store path may be a
+    /// symlink, so the real location decides.
+    fn workspace_storage(&self) -> Option<PathBuf> {
+        let real = std::fs::canonicalize(&self.store).unwrap_or_else(|_| self.store.clone());
+        let global = real.parent()?;
+        if global.file_name()? != "globalStorage" {
+            return None;
+        }
+        Some(global.parent()?.join("workspaceStorage"))
+    }
+
+    /// The project of a composer, from its header. Only the workspace
+    /// decides; a composer with no usable workspace falls under
+    /// [`NO_WORKSPACE_PROJECT`].
+    fn project_of(&self, header: Option<&Value>) -> ComposerProject {
+        let neutral = ComposerProject {
+            project_id: NO_WORKSPACE_PROJECT.to_string(),
+            cwd: None,
+        };
+        let Some(id) = header
+            .and_then(|header| header.get("workspaceId"))
+            .and_then(Value::as_str)
+            .filter(|id| is_workspace_id(id))
+        else {
+            return neutral;
+        };
+        let mut known = self.workspaces.lock().expect("workspaces");
+        if let Some(folder) = known.get(id) {
+            return ComposerProject {
+                project_id: id.to_string(),
+                cwd: Some(folder.clone()),
+            };
+        }
+        let folder = self
+            .workspace_storage()
+            .map(|dir| dir.join(id).join("workspace.json"))
+            .and_then(|file| std::fs::read_to_string(file).ok())
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|json| workspace_folder(&json));
+        match folder {
+            Some(folder) => {
+                known.insert(id.to_string(), folder.clone());
+                ComposerProject {
+                    project_id: id.to_string(),
+                    cwd: Some(folder),
+                }
+            }
+            None => neutral,
+        }
     }
 
     /// Discover composers from the headers table, reporting the ones whose
@@ -249,14 +373,16 @@ impl CursorSource {
                 stats.changed.push(id.clone());
             }
             observed.insert(id.clone(), stamp);
+            let project = self.project_of(Some(&composer));
             summaries.push(SessionSummary {
                 id,
                 agent: Agent::Cursor,
-                project_id: composer
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
+                project_id: project.project_id,
+                metadata: SessionMetadata {
+                    title: header_title(&composer),
+                    cwd: project.cwd,
+                    ..SessionMetadata::default()
+                },
                 ..SessionSummary::default()
             });
             stats.composers += 1;
@@ -319,16 +445,42 @@ impl CursorSource {
             .cloned()
             .unwrap_or_default();
 
+        let header = Self::composer_header(kv, composer_id);
+        let project = self.project_of(header.as_ref());
+        let title = composer_data
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .or_else(|| header.as_ref().and_then(header_title));
         let mut session = crate::session::Session {
             id: composer_id.to_string(),
             agent: Agent::Cursor,
-            project_id: composer_data
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
+            project_id: project.project_id,
+            metadata: SessionMetadata {
+                title,
+                cwd: project.cwd,
+                ..SessionMetadata::default()
+            },
             ..crate::session::Session::default()
         };
+        if header
+            .as_ref()
+            .and_then(|header| header.get("isSubagent"))
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
+            let kind = header
+                .as_ref()
+                .and_then(|header| header.get("subagentTypeName"))
+                .and_then(Value::as_str)
+                .filter(|kind| !kind.is_empty())
+                .unwrap_or("subagent");
+            session.subagent = Some(SubagentInfo {
+                kind: kind.to_string(),
+                nesting_depth: None,
+            });
+        }
         let mut good = 0;
         let mut skipped = SkipCounter::default();
         for header in &headers {
@@ -357,6 +509,87 @@ impl CursorSource {
             skipped,
         })
     }
+}
+
+/// Header from the older `composerHeaders` key, in the normalized shape.
+/// The conversation title (`name`) moves to `title` so nothing downstream
+/// can mistake it for a project.
+fn normalize_key_header(header: &Value) -> Value {
+    serde_json::json!({
+        "composerId": header.get("composerId").cloned().unwrap_or(Value::Null),
+        "lastUpdatedAt": header.get("lastUpdatedAt").cloned().unwrap_or(Value::Null),
+        "title": header.get("name").cloned().unwrap_or(Value::Null),
+        "workspaceId": header.get("workspaceId").cloned().unwrap_or(Value::Null),
+        "isSubagent": header.get("isSubagent").and_then(Value::as_bool).unwrap_or(false),
+        "subagentTypeName": header.get("subagentTypeName").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn header_title(header: &Value) -> Option<String> {
+    header
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|title| !title.is_empty())
+        .map(str::to_string)
+}
+
+/// Workspace ids are 32 hex characters (an md5 of the folder). Anything
+/// else (`empty-window`, a path-like string) has no directory, and is never
+/// joined onto a path.
+fn is_workspace_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// The folder a `workspace.json` names: its `folder` URI, or the directory
+/// holding its `.code-workspace` file (the file's parent reads as the
+/// project, where the file stem is often just "workspace"). Remote URIs,
+/// Cursor's own untitled `workspace.json` files, and anything unreadable
+/// give `None`.
+fn workspace_folder(json: &Value) -> Option<String> {
+    if let Some(folder) = json.get("folder").and_then(Value::as_str) {
+        return file_uri_path(folder);
+    }
+    let file = file_uri_path(json.get("workspace").and_then(Value::as_str)?)?;
+    let path = Path::new(&file);
+    if !file.ends_with(".code-workspace") {
+        return None;
+    }
+    let parent = path.parent()?.to_str()?;
+    (!parent.is_empty()).then(|| parent.to_string())
+}
+
+/// The path of a `file://` URI, percent-decoded. Other schemes, and hosts
+/// other than local, give `None`.
+fn file_uri_path(uri: &str) -> Option<String> {
+    let rest = uri.strip_prefix("file://")?;
+    let path = rest.strip_prefix("localhost").unwrap_or(rest);
+    if !path.starts_with('/') {
+        return None;
+    }
+    let bytes = path.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'%' && at + 2 < bytes.len() {
+            if let Some(byte) = path
+                .get(at + 1..at + 3)
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+            {
+                decoded.push(byte);
+                at += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[at]);
+        at += 1;
+    }
+    let mut text = String::from_utf8_lossy(&decoded).into_owned();
+    // `file:///c%3A/dir` is a Windows drive path: drop the leading slash.
+    let drive = text.as_bytes();
+    if drive.len() >= 3 && drive[0] == b'/' && drive[1].is_ascii_alphabetic() && drive[2] == b':' {
+        text.remove(0);
+    }
+    (text.len() > 1).then_some(text)
 }
 
 enum SkipReason {
@@ -1147,10 +1380,304 @@ mod tests {
         let source = CursorSource::new(&store);
         let (summaries, stats) = source.discover();
         assert_eq!(stats.composers, 2);
-        assert_eq!(summaries[0].project_id, "named");
+        // The workspace id "w" is not a real one, and the title is not a
+        // project: both composers fall under the neutral project.
+        assert_eq!(summaries[0].project_id, NO_WORKSPACE_PROJECT);
+        assert_eq!(summaries[0].metadata.title.as_deref(), Some("named"));
         assert_eq!(stats.changed.len(), 2);
         assert_eq!(source.extract("composer-1").unwrap().good, 1);
         assert!(source.doctor().issues.is_empty());
+    }
+
+    const WS_A: &str = "0123456789abcdef0123456789abcdef";
+    const WS_B: &str = "fedcba9876543210fedcba9876543210";
+
+    /// A Cursor application-data layout in a tempdir: the store at
+    /// `User/globalStorage/state.vscdb`, and one `workspace.json` per entry
+    /// under `User/workspaceStorage/<id>/`.
+    fn layout(tag: &str, workspaces: &[(&str, Value)]) -> (PathBuf, Connection) {
+        let root = std::env::temp_dir().join(format!("botspy-curws-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let global = root.join("User/globalStorage");
+        std::fs::create_dir_all(&global).unwrap();
+        for (id, json) in workspaces {
+            let dir = root.join("User/workspaceStorage").join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("workspace.json"), json.to_string()).unwrap();
+        }
+        let store = global.join("state.vscdb");
+        let conn = open_store(&store);
+        conn.execute(
+            "CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, \
+             createdAt INTEGER, lastUpdatedAt INTEGER, isArchived INTEGER, isSubagent INTEGER, \
+             recency INTEGER, checkpointAt INTEGER, value TEXT, subagentTypeName TEXT)",
+            [],
+        )
+        .unwrap();
+        (store, conn)
+    }
+
+    fn add_composer(
+        conn: &Connection,
+        id: &str,
+        workspace: Option<&str>,
+        title: &str,
+        subagent: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO composerHeaders (composerId, workspaceId, createdAt, lastUpdatedAt, \
+             isSubagent, value, subagentTypeName) VALUES (?1, ?2, 1, 2, ?3, ?4, ?5)",
+            rusqlite::params![
+                id,
+                workspace,
+                subagent.is_some() as i64,
+                json!({"composerId": id, "name": title}).to_string(),
+                subagent.filter(|kind| !kind.is_empty())
+            ],
+        )
+        .unwrap();
+        put(
+            conn,
+            &format!("composerData:{id}"),
+            &json!({"name": title, "fullConversationHeadersOnly": [{"bubbleId": "b1"}]}),
+        );
+        put(
+            conn,
+            &format!("bubbleId:{id}:b1"),
+            &json!({"type": 1, "text": "hi"}),
+        );
+    }
+
+    fn project_of_composer(source: &CursorSource, id: &str) -> (String, Option<String>) {
+        let session = source.extract(id).unwrap().session;
+        let summary = source
+            .discover()
+            .0
+            .into_iter()
+            .find(|summary| summary.id == id)
+            .unwrap();
+        assert_eq!(summary.project_id, session.project_id);
+        assert_eq!(summary.metadata.cwd, session.metadata.cwd);
+        (session.project_id, session.metadata.cwd)
+    }
+
+    #[test]
+    fn a_composer_is_grouped_by_its_workspace_folder_never_its_title() {
+        let (store, conn) = layout(
+            "folder",
+            &[
+                (WS_A, json!({"folder": "file:///work/demo"})),
+                (WS_B, json!({"folder": "file:///work/other"})),
+            ],
+        );
+        add_composer(&conn, "c1", Some(WS_A), "Secret plan", None);
+        add_composer(&conn, "c2", Some(WS_A), "Another title", None);
+        add_composer(&conn, "c3", Some(WS_B), "Secret plan", None);
+        drop(conn);
+        let source = CursorSource::new(&store);
+        let (p1, cwd1) = project_of_composer(&source, "c1");
+        let (p2, _) = project_of_composer(&source, "c2");
+        let (p3, cwd3) = project_of_composer(&source, "c3");
+        assert_eq!((p1.as_str(), cwd1.as_deref()), (WS_A, Some("/work/demo")));
+        assert_eq!(p1, p2);
+        assert_ne!(p1, p3);
+        assert_eq!(cwd3.as_deref(), Some("/work/other"));
+        let session = source.extract("c1").unwrap().session;
+        assert_eq!(session.metadata.title.as_deref(), Some("Secret plan"));
+        assert!(!session.project_id.contains("Secret"));
+    }
+
+    #[test]
+    fn folder_uris_are_percent_decoded() {
+        let (store, conn) = layout(
+            "encoded",
+            &[(
+                WS_A,
+                json!({"folder": "file:///work/my%20demo/caf%C3%A9%2Bx"}),
+            )],
+        );
+        add_composer(&conn, "c1", Some(WS_A), "t", None);
+        drop(conn);
+        let source = CursorSource::new(&store);
+        assert_eq!(
+            project_of_composer(&source, "c1").1.as_deref(),
+            Some("/work/my demo/café+x")
+        );
+    }
+
+    #[test]
+    fn a_code_workspace_file_names_its_parent_directory() {
+        let (store, conn) = layout(
+            "codews",
+            &[(
+                WS_A,
+                json!({"workspace": "file:///work/demo/main.code-workspace"}),
+            )],
+        );
+        add_composer(&conn, "c1", Some(WS_A), "t", None);
+        drop(conn);
+        let source = CursorSource::new(&store);
+        assert_eq!(
+            project_of_composer(&source, "c1"),
+            (WS_A.to_string(), Some("/work/demo".to_string()))
+        );
+    }
+
+    #[test]
+    fn composers_without_a_usable_workspace_share_the_neutral_project() {
+        let (store, conn) = layout(
+            "neutral",
+            &[
+                (WS_A, json!({})),
+                (
+                    WS_B,
+                    json!({"folder": "vscode-remote://ssh-remote+host/work/x"}),
+                ),
+                (
+                    "cccccccccccccccccccccccccccccccc",
+                    json!({"workspace": "file:///cursor/Workspaces/1/workspace.json"}),
+                ),
+            ],
+        );
+        add_composer(&conn, "none", None, "Alpha", None);
+        add_composer(&conn, "empty", Some("empty-window"), "Beta", None);
+        add_composer(
+            &conn,
+            "missing",
+            Some("11111111111111111111111111111111"),
+            "Gamma",
+            None,
+        );
+        add_composer(&conn, "traversal", Some("../../../../etc"), "Delta", None);
+        add_composer(&conn, "nofolder", Some(WS_A), "Epsilon", None);
+        add_composer(&conn, "remote", Some(WS_B), "Zeta", None);
+        add_composer(
+            &conn,
+            "untitled",
+            Some("cccccccccccccccccccccccccccccccc"),
+            "Eta",
+            None,
+        );
+        drop(conn);
+        let source = CursorSource::new(&store);
+        for id in [
+            "none",
+            "empty",
+            "missing",
+            "traversal",
+            "nofolder",
+            "remote",
+            "untitled",
+        ] {
+            assert_eq!(
+                project_of_composer(&source, id),
+                (NO_WORKSPACE_PROJECT.to_string(), None),
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_older_headers_key_without_workspace_ids_uses_the_neutral_project() {
+        let store = temp_store("oldkey");
+        let conn = open_store(&store);
+        put(
+            &conn,
+            "composerHeaders",
+            &json!([{"composerId": "c1", "lastUpdatedAt": 1, "name": "A title"}]),
+        );
+        put(
+            &conn,
+            "composerData:c1",
+            &json!({"name": "A title", "fullConversationHeadersOnly": []}),
+        );
+        drop(conn);
+        let source = CursorSource::new(&store);
+        let summary = source.discover().0.remove(0);
+        assert_eq!(summary.project_id, NO_WORKSPACE_PROJECT);
+        let session = source.extract("c1").unwrap().session;
+        assert_eq!(session.project_id, NO_WORKSPACE_PROJECT);
+        assert_eq!(session.metadata.cwd, None);
+        assert_eq!(session.metadata.title.as_deref(), Some("A title"));
+    }
+
+    #[test]
+    fn workspace_lookup_follows_a_symlinked_store_and_is_read_only() {
+        let (store, conn) = layout("link", &[(WS_A, json!({"folder": "file:///work/demo"}))]);
+        add_composer(&conn, "c1", Some(WS_A), "t", None);
+        drop(conn);
+        let linked_root =
+            std::env::temp_dir().join(format!("botspy-curws-linkroot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&linked_root);
+        std::fs::create_dir_all(linked_root.join("cursor/store")).unwrap();
+        let link = linked_root.join("cursor/store/state.vscdb");
+        std::os::unix::fs::symlink(&store, &link).unwrap();
+        let workspace_json = store
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("workspaceStorage")
+            .join(WS_A)
+            .join("workspace.json");
+        let before = digest_files(&[workspace_json.as_path()]);
+        let source = CursorSource::new(&link);
+        assert_eq!(
+            project_of_composer(&source, "c1").1.as_deref(),
+            Some("/work/demo")
+        );
+        assert_eq!(digest_files(&[workspace_json.as_path()]), before);
+        let _ = std::fs::remove_dir_all(&linked_root);
+    }
+
+    #[test]
+    fn workspace_folders_are_read_once_per_source() {
+        let (store, conn) = layout("cache", &[(WS_A, json!({"folder": "file:///work/demo"}))]);
+        add_composer(&conn, "c1", Some(WS_A), "t", None);
+        drop(conn);
+        let source = CursorSource::new(&store);
+        assert_eq!(
+            project_of_composer(&source, "c1").1.as_deref(),
+            Some("/work/demo")
+        );
+        let workspace_dir = store
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("workspaceStorage");
+        std::fs::remove_dir_all(&workspace_dir).unwrap();
+        assert_eq!(
+            project_of_composer(&source, "c1").1.as_deref(),
+            Some("/work/demo")
+        );
+    }
+
+    #[test]
+    fn a_subagent_composer_carries_its_kind_and_no_parent() {
+        let (store, conn) = layout("sub", &[(WS_A, json!({"folder": "file:///work/demo"}))]);
+        add_composer(&conn, "typed", Some(WS_A), "t", Some("explore"));
+        add_composer(&conn, "plain", Some(WS_A), "t", Some(""));
+        add_composer(&conn, "main", Some(WS_A), "t", None);
+        drop(conn);
+        let source = CursorSource::new(&store);
+        let typed = source.extract("typed").unwrap().session;
+        let info = typed.subagent.unwrap();
+        assert_eq!((info.kind.as_str(), info.nesting_depth), ("explore", None));
+        assert_eq!(typed.parent_id, None);
+        let plain = source.extract("plain").unwrap().session;
+        assert_eq!(plain.subagent.unwrap().kind, "subagent");
+        assert_eq!(source.extract("main").unwrap().session.subagent, None);
+    }
+
+    #[test]
+    fn file_uris_decode_and_reject_other_hosts() {
+        assert_eq!(file_uri_path("file:///a/b%20c").as_deref(), Some("/a/b c"));
+        assert_eq!(file_uri_path("file:///c%3A/dir").as_deref(), Some("c:/dir"));
+        assert_eq!(file_uri_path("file://localhost/a").as_deref(), Some("/a"));
+        assert_eq!(file_uri_path("file://server/share"), None);
+        assert_eq!(file_uri_path("vscode-remote://x/a"), None);
+        assert_eq!(file_uri_path("file:///a/%zz%"), Some("/a/%zz%".to_string()));
     }
 
     fn seeded_source(tag: &str, composers: usize) -> (CursorSource, PathBuf) {

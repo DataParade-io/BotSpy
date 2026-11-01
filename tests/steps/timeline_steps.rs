@@ -23,9 +23,9 @@ const SECRET_TEXT: &str = "never-show-this-message-text";
 
 #[derive(Debug, Default)]
 pub struct TimelineState {
-    sessions: Vec<Session>,
+    pub sessions: Vec<Session>,
     args: Vec<String>,
-    html: String,
+    pub html: String,
     exit: Option<i32>,
     stdout: String,
     out_path: Option<PathBuf>,

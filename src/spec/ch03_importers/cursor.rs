@@ -39,6 +39,9 @@
     "\n```\n\n",
     "### cursor/snapshot.feature\n\n```gherkin\n",
     include_str!("../../../features/03_importers/cursor/snapshot.feature"),
+    "\n```\n\n",
+    "### cursor/workspace.feature\n\n```gherkin\n",
+    include_str!("../../../features/03_importers/cursor/workspace.feature"),
     "\n```\n"
 )]
 //!
