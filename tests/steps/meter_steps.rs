@@ -289,7 +289,7 @@ fn zero_y(svg: &str) -> f64 {
     attr(&line, "y1").expect("y1").parse().expect("number")
 }
 
-#[then(regex = r#"^the figure has ([0-9]+) weeks?$"#)]
+#[then(regex = r#"^the figure has ([0-9]+) (?:weeks?|days?|hours?)$"#)]
 fn figure_weeks(world: &mut BotSpyWorld, count: usize) {
     // A week with no messages has no bar to count, so the week count is
     // read from the figure's own record of its axis.
@@ -302,7 +302,7 @@ fn figure_weeks(world: &mut BotSpyWorld, count: usize) {
     );
 }
 
-#[then(regex = r#"^the week "([^"]+)" has ([0-9]+) thanks and ([0-9]+) F-bombs?$"#)]
+#[then(regex = r#"^the (?:week|day|hour) "([^"]+)" has ([0-9]+) thanks and ([0-9]+) F-bombs?$"#)]
 fn week_counts(world: &mut BotSpyWorld, week: String, thanks: u64, f_bombs: u64) {
     let svg = svg(world);
     let axis = tags(svg, "<g class=\"weeks\"").remove(0);
@@ -378,7 +378,7 @@ fn one_scale(world: &mut BotSpyWorld) {
     }
 }
 
-#[then(regex = r#"^the (thanks|F-bomb) bar of week "([^"]+)" is labelled "([^"]+)"$"#)]
+#[then(regex = r#"^the (thanks|F-bomb) bar of (?:week|day) "([^"]+)" is labelled "([^"]+)"$"#)]
 fn bar_labelled(world: &mut BotSpyWorld, kind: String, week: String, label: String) {
     let svg = svg(world);
     let kind = if kind == "thanks" { "thanks" } else { "fbomb" };
@@ -405,6 +405,27 @@ fn bar_labelled(world: &mut BotSpyWorld, kind: String, week: String, label: Stri
 #[then(regex = r#"^no bar is labelled$"#)]
 fn no_bar_labelled(world: &mut BotSpyWorld) {
     assert!(!svg(world).contains("<text class=\"ink value\""));
+}
+
+#[then(regex = r#"^exactly ([0-9]+) bars? (?:is|are) labelled$"#)]
+fn bars_labelled(world: &mut BotSpyWorld, count: usize) {
+    assert_eq!(
+        svg(world).matches("<text class=\"ink value\"").count(),
+        count
+    );
+}
+
+#[then(regex = r#"^the x axis caption reads "([^"]+)"$"#)]
+fn axis_caption_reads(world: &mut BotSpyWorld, caption: String) {
+    assert_eq!(
+        text_with(svg(world), "class=\"muted caption\"").as_deref(),
+        Some(caption.as_str())
+    );
+}
+
+#[then(regex = r#"^the figure describes itself as counting messages per (week|day|hour)$"#)]
+fn figure_description(world: &mut BotSpyWorld, noun: String) {
+    assert!(svg(world).contains(&format!("in your messages per {noun}, as bars")));
 }
 
 #[then(regex = r#"^no bar hangs below the zero axis$"#)]

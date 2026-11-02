@@ -28,6 +28,8 @@ const CHAR_W: f64 = 0.58;
 /// Room on the left for the count labels of the vertical axis.
 const GUTTER: f64 = 40.0;
 const PLOT_W: f64 = 900.0;
+/// A bar's slot narrower than this has no room for a count label.
+const MIN_LABEL_SLOT: f64 = 8.0;
 const WIDTH: f64 = GUTTER + PLOT_W;
 /// Height shared by the tallest thanks bar and the tallest F-bomb bar.
 const PLOT_H: f64 = 220.0;
@@ -98,6 +100,15 @@ impl Period {
             Period::Week => WEEK_MS,
             Period::Day => DAY_MS,
             Period::Hour => HOUR_MS,
+        }
+    }
+
+    /// One bar's period, for the figure's description.
+    fn noun(self) -> &'static str {
+        match self {
+            Period::Week => "week",
+            Period::Day => "day",
+            Period::Hour => "hour",
         }
     }
 
@@ -435,10 +446,13 @@ pub fn figure_by(weeks: &[Week], theme: Theme, period: Period, utc_offset_hours:
     for (index, week) in weeks.iter().enumerate() {
         let x = centre(index) - bar_w / 2.0;
         let date = label_of(week.start);
-        // Narrow bars have room for a label only on the tallest ones.
+        // Narrow bars have room for a label only on the tallest ones, and
+        // the narrowest have room for none.
         let peak = max_thanks.max(max_f_bombs);
         let labelled = |count: u64| {
-            if slot < 24.0 {
+            if slot < MIN_LABEL_SLOT {
+                false
+            } else if slot < 24.0 {
                 count * 3 >= peak && text_width(&grouped(count), value_size) <= 2.5 * slot
             } else {
                 text_width(&grouped(count), value_size) + 2.0 <= slot
@@ -527,10 +541,11 @@ pub fn figure_by(weeks: &[Week], theme: Theme, period: Period, utc_offset_hours:
 
     // ---- assemble: the viewBox is the content plus an even padding ----
     let view_box = [-PAD, -PAD, WIDTH + 2.0 * PAD, height + 2.0 * PAD];
+    let noun = period.noun();
     let mut svg = String::new();
     let _ = writeln!(
         svg,
-        "<svg class=\"figure\" xmlns=\"{SVG_NS}\" width=\"{}\" height=\"{}\" viewBox=\"{} {} {} {}\" font-family=\"{FONT}\" role=\"img\" aria-label=\"Thanks and F-bombs in your messages per week, as bars up and down from a zero axis\" data-pad=\"{PAD}\" data-content=\"0 0 {WIDTH} {height}\">",
+        "<svg class=\"figure\" xmlns=\"{SVG_NS}\" width=\"{}\" height=\"{}\" viewBox=\"{} {} {} {}\" font-family=\"{FONT}\" role=\"img\" aria-label=\"Thanks and F-bombs in your messages per {noun}, as bars up and down from a zero axis\" data-pad=\"{PAD}\" data-content=\"0 0 {WIDTH} {height}\">",
         view_box[2], view_box[3], view_box[0], view_box[1], view_box[2], view_box[3]
     );
     let _ = writeln!(svg, "<style>\n{}\n</style>", css(theme));
