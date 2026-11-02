@@ -26,7 +26,7 @@ Feature: botspy search
   Scenario: Hits rank best session first, and every hit carries its coordinates
     When I search the imported store for "the" with JSON output
     Then the exit code is 0
-    And stdout parses as a JSON array of 12 entries
+    And stdout parses as a JSON array of 13 entries
     And the first JSON hit is for session "00000000-0000-4000-8000-000000000001"
     And every JSON entry has "session_id", "message_ordinal" and "score"
 

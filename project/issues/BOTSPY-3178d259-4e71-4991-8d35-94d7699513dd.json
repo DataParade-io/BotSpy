@@ -1,0 +1,20 @@
+{
+  "id": "BOTSPY-3178d259-4e71-4991-8d35-94d7699513dd",
+  "title": "Antigravity and Cursor readers find no sessions on current installs",
+  "description": "Real installs (2026-11-01, macOS) show 0 sessions: (1) Antigravity conversation_summaries.db now has table conversation_summaries(conversation_id,title,last_modified_time,parent_conversation_id,nesting_depth,battle_id,...), not conversations(id,name,updated_at); payload.db is gone. (2) Cursor CLI transcripts moved to agent-transcripts/<uuid>/<uuid>.jsonl with sub-agents at agent-transcripts/<uuid>/subagents/<uuid>.jsonl; records are {role,message} with no timestamps. (3) Cursor IDE store default on macOS is ~/Library/Application Support/Cursor/User/globalStorage/state.vscdb, not ~/.cursor/state.vscdb; the Cursor CLI source is also missing from 'botspy sources'.",
+  "type": "bug",
+  "status": "open",
+  "priority": 2,
+  "assignee": null,
+  "creator": null,
+  "parent": null,
+  "labels": [],
+  "dependencies": [],
+  "comments": [],
+  "created_at": "2026-11-01T16:48:02.652382Z",
+  "updated_at": "2026-11-01T16:48:02.652474Z",
+  "closed_at": null,
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

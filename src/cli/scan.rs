@@ -668,9 +668,11 @@ mod tests {
     #[test]
     fn the_agent_name_maps_to_the_registry_name() {
         for name in super::super::ALL_SOURCES {
+            // `cursor_cli` is a second source of the Cursor agent.
+            let agent_source = if name == "cursor_cli" { "cursor" } else { name };
             assert_eq!(
                 super::super::agent_name(super::super::agent_of(name).expect("known name")),
-                name
+                agent_source
             );
         }
     }

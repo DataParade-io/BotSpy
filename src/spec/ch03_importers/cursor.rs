@@ -22,7 +22,8 @@
 //!   exist as protobuf blobs stay as blob references pending
 //!   `12_raw_blob_escape_hatch.feature`.
 //! - **Retries**: the 6 GB vscdb has a hot WAL; reads are retried against
-//!   a snapshot copy. Bubble keys are unordered — order comes from
+//!   a snapshot copy, taken once and reused while the store is unchanged
+//!   (see `snapshot.feature`). Bubble keys are unordered — order comes from
 //!   `composerData.fullConversationHeadersOnly`.
 //!
 //! ## Status: specified
@@ -35,6 +36,15 @@
     "## Behavior specification\n\n",
     "### cursor/adapter.feature\n\n```gherkin\n",
     include_str!("../../../features/03_importers/cursor/adapter.feature"),
+    "\n```\n\n",
+    "### cursor/snapshot.feature\n\n```gherkin\n",
+    include_str!("../../../features/03_importers/cursor/snapshot.feature"),
+    "\n```\n\n",
+    "### cursor/workspace.feature\n\n```gherkin\n",
+    include_str!("../../../features/03_importers/cursor/workspace.feature"),
+    "\n```\n\n",
+    "### cursor/message_origin.feature\n\n```gherkin\n",
+    include_str!("../../../features/03_importers/cursor/message_origin.feature"),
     "\n```\n"
 )]
 //!

@@ -105,7 +105,7 @@ and
 | Agent | Source name | Reads |
 |---|---|---|
 | Claude Code | `claude_code` | `~/.claude/projects/` — per-session JSONL transcripts |
-| Cursor | `cursor` | `~/.cursor/state.vscdb` and CLI agent transcripts, read through a WAL-safe snapshot copy |
+| Cursor | `cursor` | the IDE `state.vscdb` store (application data directory) and, as `cursor_cli`, the CLI agent transcripts, read through a WAL-safe snapshot copy |
 | Codex | `codex` | `~/.codex/sessions/` rollout JSONL plus the thread index at the root |
 | Grok Bot | `grok_bot` | `~/.grok/sand-client-persistence/` entry logs, plus roster and cloud-agent files |
 | Antigravity | `antigravity` | `~/.gemini/antigravity/` summaries DB, brain transcripts, and payload databases, read through snapshot copies |
@@ -175,14 +175,15 @@ Add `--no-truncate` in human mode for full ids and paths.
 $ botspy sources --home /tmp/demo
 SOURCE        ROOT                                        SESSIONS  STATUS
 claude_code   /tmp/demo/.claude/projects                  4         ok
-cursor        /tmp/demo/.cursor/state.vscdb               2         ok
+cursor        …/.config/Cursor/User/globalStorage/state.vscdb  2    ok
+cursor_cli    /tmp/demo/.cursor/projects                  1         ok
 codex         /tmp/demo/.codex                            2         ok
 grok_bot      …mp/demo/.grok/sand-client-persistence      3         ok
 antigravity   /tmp/demo/.gemini/antigravity               2         ok
 ```
 
 A source whose files are missing is listed as `missing`, never hidden.
-Restrict to one source with `--source claude_code`; point at a different
+The IDE store path above is the Linux one; macOS uses `Library/Application Support/Cursor/User/globalStorage/` and Windows uses `%APPDATA%`. Restrict to one source with `--source claude_code`; point at a different
 home with `--home` (or the `BOTSPY_HOME` environment variable).
 
 ### Check the health of your sources
@@ -445,6 +446,79 @@ under
 and the store chapter in
 [`docs/store.md`](https://github.com/DataParade-io/BotSpy/blob/develop/docs/store.md).
 
+## Parallel sessions timeline
+
+`cargo run --example timeline` reads your sessions through the public API
+and writes one self-contained HTML file (inline SVG and CSS, no scripts,
+nothing loaded from elsewhere): agents working at once on top, one
+swimlane per session below, grouped by project. A bar is a turn, the agent
+working from your message to its last reply; the dotted line after it is
+the agent waiting for you, which does not count as working. There are no
+thresholds: turns come from who spoke, not from gap statistics. Sub-agents
+and forks nest under the session that spawned them. Agents differ by pattern
+and legend label, not colour alone, and the page follows light and dark mode.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/timeline.dark.png">
+  <img src="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/timeline.light.png" alt="Timeline of a synthetic demo: agents working at once peaking at 5, and swimlanes for three projects with turns, waiting for you, a fork and sub-agents">
+</picture>
+
+The picture above is rendered from the synthetic `--demo` corpus. The whole
+figure (title, legend, chart, lanes and axis) is one SVG cut to its content
+plus a 16 px padding, so it has no blank margins. Regenerate the two images
+with the example's own PNG output (pure-Rust `resvg`, 2x by default):
+
+```bash
+cargo run --example timeline -- --demo --theme light --png docs/images/timeline.light.png
+cargo run --example timeline -- --demo --theme dark  --png docs/images/timeline.dark.png
+```
+
+```bash
+cargo run --example timeline -- --demo            # try it on made-up sessions
+cargo run --example timeline -- --since 2026-10-01T00:00:00Z --project web \
+  --source claude_code --source codex --out week.html [data-root]
+```
+
+Flags: `--since`, `--until`, `--project` (substring), `--source`
+(repeatable), `--titles`, `--out PATH` (the HTML page; default
+`timeline.html` when no other output is asked for), `--svg PATH` (the
+standalone figure), `--png PATH` with `--scale N` (default 2), `--theme
+light|dark` (colours of the SVG and PNG, default light), `--demo`.
+Session titles appear only with `--titles`; message text never appears.
+
+## Thanks vs F-bombs meter
+
+`cargo run --example meter` scores how you talk to your coding agents. It
+counts only the messages you typed: agent replies, tool results and text
+injected by tooling never score, and a sub-agent's prompts (written by its
+parent agent) are left out too. With no flags it prints thanks and F-bombs
+per session and in total.
+
+With `--svg PATH` or `--png PATH` it draws your messages per week as a
+diverging bar chart: thanks rise from a zero axis as solid bars, F-bombs
+hang below it as diagonally hatched bars, so the two differ by pattern and
+not only by colour. The title block gives the totals and the ratio, and the
+figure is cut tight to its content, like the timeline above. Message text,
+session titles and ids never appear in it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/meter.dark.png">
+  <img src="https://raw.githubusercontent.com/DataParade-io/BotSpy/develop/docs/images/meter.light.png" alt="Weekly bar chart of a synthetic demo: thanks as solid bars above a zero axis and F-bombs as hatched bars below it, 421 thanks and 31 F-bombs over twelve weeks">
+</picture>
+
+The picture is rendered from the synthetic `--demo` corpus. Regenerate it
+with the example's own PNG output:
+
+```bash
+cargo run --example meter -- --demo --theme light --png docs/images/meter.light.png
+cargo run --example meter -- --demo --theme dark  --png docs/images/meter.dark.png
+```
+
+Flags: `--since`, `--until` (limit the chart to a window), `--svg PATH`,
+`--png PATH` with `--scale N` (default 2), `--theme light|dark` (default
+light), `--demo`. Weeks start on Monday, UTC; messages without a timestamp
+cannot be placed on a week and are left out of the chart.
+
 ## Learn more
 
 The docs pages are the deep reference; this README stays the overview.
@@ -473,10 +547,12 @@ The docs pages are the deep reference; this README stays the overview.
   and run with `cargo test --test bdd`; the specs are the source of
   truth, and the implementation is generated from them
 - Example consumers of the public API: [`examples/`](https://github.com/DataParade-io/BotSpy/blob/develop/examples/)
-  — a session meter, local sentiment analysis, a metrics stub, and
+  — a [thanks-vs-F-bombs meter](#thanks-vs-f-bombs-meter), local sentiment analysis, a metrics stub, and
   [privacy controls](https://github.com/DataParade-io/BotSpy/blob/develop/examples/privacy/main.rs)
   that find and redact secrets and personal data with LeftBlock
-  (`pipx install leftblock`) before any analysis runs
+  (`pipx install leftblock`) before any analysis runs, and a
+  [parallel sessions timeline](#parallel-sessions-timeline) that draws
+  how many agents were working at once as one local HTML page
 - Repository: [github.com/DataParade-io/BotSpy](https://github.com/DataParade-io/BotSpy)
 
 ## Development

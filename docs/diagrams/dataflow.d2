@@ -130,6 +130,16 @@ privacy_example: {
   class: tool
 }
 
+timeline_example: {
+  label: "Timeline example (examples/timeline)\nreads sessions, finds active stretches;\nwrites one local HTML file, never message text"
+  class: tool
+}
+
+timeline_html: {
+  label: "Sensitive data: timeline.html\nsession timing, agent and project names;\ntitles only with --titles"
+  class: sensitive
+}
+
 leftblock: {
   label: "Sensitive data: LeftBlock process\nlocal leftblock scan --jsonl\nprivate 0700 temp dir, deleted after;\nno network (--deep downloads model\nweights on first use only)"
   class: sensitive
@@ -174,3 +184,5 @@ schema -> privacy_example: "optional example reads sessions\nthrough the public 
 privacy_example -> leftblock: "text-bearing parts as JSONL on stdin.\nSensitive data: plaintext text"
 leftblock -> privacy_example: "findings: byte ranges, rule, kind.\nNever the matched value"
 privacy_example -> output: "audit counts, or redacted text.\nSensitive data: redacted session text"
+schema -> timeline_example: "optional example reads sessions\nthrough the public API, no store.\nSensitive data: session history"
+timeline_example -> timeline_html: "one self-contained page: inline SVG and CSS.\nSensitive data: session timing and metadata"

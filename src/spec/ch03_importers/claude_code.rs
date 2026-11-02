@@ -6,7 +6,7 @@
 //! The Claude Code importer is the per-agent translation of the CDC
 //! pipeline for Claude Code's storage: append-only JSONL transcripts under
 //! `~/.claude/projects/<encoded-cwd>/`, one per session, plus sibling
-//! `subagents/agent-*.jsonl` files for sub-agent (sidechain) transcripts
+//! `<session-id>/subagents/agent-*.jsonl` files for sub-agent (sidechain) transcripts, imported as sessions spawned by the parent
 //! and auxiliary records (`cost-state`, `pr-link`, `custom-title`,
 //! `file-history-*`) inside the session files.
 //!
@@ -34,6 +34,9 @@
     "## Behavior specification\n\n",
     "### claude_code/adapter.feature\n\n```gherkin\n",
     include_str!("../../../features/03_importers/claude_code/adapter.feature"),
+    "\n```\n\n",
+    "### claude_code/message_origin.feature\n\n```gherkin\n",
+    include_str!("../../../features/03_importers/claude_code/message_origin.feature"),
     "\n```\n"
 )]
 //!

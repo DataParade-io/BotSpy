@@ -11,7 +11,7 @@ Feature: botspy stats
   Scenario: Stats bucket the sessions by source
     When I run "botspy stats --db {out_dir}/store.db" against the fixture home
     Then the exit code is 0
-    And stdout reports "12 sessions"
+    And stdout reports "13 sessions"
     And stdout contains "claude_code" "4"
     And stdout contains "antigravity" "2"
     And stdout contains "grok_bot" "2"
@@ -19,7 +19,7 @@ Feature: botspy stats
   Scenario: --by project buckets by project id
     When I run "botspy stats --by project --db {out_dir}/store.db" against the fixture home
     Then the exit code is 0
-    And stdout reports "12 sessions"
+    And stdout reports "13 sessions"
     And stdout contains "extra-demo" "1"
     And stdout contains "/workspace/alpha" "2"
     And stdout contains "no project" "2"
@@ -27,9 +27,9 @@ Feature: botspy stats
   Scenario: --by day buckets by the day of last activity
     When I run "botspy stats --by day --db {out_dir}/store.db" against the fixture home
     Then the exit code is 0
-    And stdout reports "12 sessions"
+    And stdout reports "13 sessions"
     And stdout contains "2026-10-01" "7"
-    And stdout contains "no activity" "4"
+    And stdout contains "no activity" "5"
 
   Scenario: Stats serialize as JSON
     When I run "botspy stats --db {out_dir}/store.db -o json" against the fixture home

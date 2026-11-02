@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/DataParade-io/BotSpy/compare/v0.3.0...v0.4.0) - 2026-11-01
+
+### Added
+
+- *(examples)* weekly thanks-vs-F-bombs chart for the meter
+- *(examples)* --no-ids leaves session ids out of the timeline figure ([#43](https://github.com/DataParade-io/BotSpy/pull/43))
+- *(examples)* tight-cropped SVG/PNG timeline figure
+- *(claude_code)* import sub-agent transcripts as spawned sessions
+- *(examples)* parallel sessions timeline
+- *(examples)* add privacy example that audits and redacts transcripts with LeftBlock
+
+### Documentation
+
+- *(examples)* rewrap timeline idle-detection comment
+- *(diagrams)* render the privacy example in the data-flow diagram
+
+### Fixed
+
+- *(cursor)* resolve CLI project folders inside directories that cannot be listed ([#51](https://github.com/DataParade-io/BotSpy/pull/51))
+- *(examples)* give each timeline lane its own row when sessions share an id, and spell sub-agent kinds consistently ([#50](https://github.com/DataParade-io/BotSpy/pull/50))
+- *(adapters)* mark harness-injected user messages so they are not the human's ([#48](https://github.com/DataParade-io/BotSpy/pull/48))
+- *(adapters)* record each session's working directory so projects are named by folder ([#47](https://github.com/DataParade-io/BotSpy/pull/47))
+- *(cursor)* group IDE sessions by workspace, never by title ([#42](https://github.com/DataParade-io/BotSpy/pull/42))
+- *(cursor)* reuse one store snapshot while the store is unchanged
+- *(adapters)* read current Antigravity and Cursor layouts
+- *(examples)* cut a long sub-agent kind, never its id, in timeline labels
+- *(examples)* define timeline activity by turns, not gap statistics
+- *(examples)* timeline idle fence ignores zero gaps
+- *(examples)* single log-gap fence for timeline idle detection
+- *(examples)* timeline idle detection and labels on real histories
+- *(examples)* run the LeftBlock stub through the test runner under cross
+- *(examples)* make the planted demo values match real scanner formats
+
 ## [0.3.0](https://github.com/DataParade-io/BotSpy/compare/v0.2.1...v0.3.0) - 2026-10-05
 
 ### Added

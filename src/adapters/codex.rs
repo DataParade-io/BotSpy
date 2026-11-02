@@ -91,7 +91,7 @@ impl ThreadRow {
 
 /// Format an epoch-milliseconds instant as RFC3339 UTC (second
 /// precision). Non-positive instants map to the empty timestamp.
-fn rfc3339_utc(epoch_ms: i64) -> String {
+pub(crate) fn rfc3339_utc(epoch_ms: i64) -> String {
     if epoch_ms <= 0 {
         return String::new();
     }
@@ -474,7 +474,16 @@ fn normalize_response_item(
                 "system" => (Role::System, None),
                 _ => return None,
             };
-            (role, message_parts(payload.get("content")?), origin)
+            let parts = message_parts(payload.get("content")?);
+            let origin = origin.or_else(|| {
+                (role == Role::User
+                    && parts
+                        .as_deref()
+                        .and_then(first_text)
+                        .is_some_and(is_injected_user_text))
+                .then_some(Origin::Harness)
+            });
+            (role, parts, origin)
         }
         "reasoning" => {
             let texts: Vec<&str> = payload
@@ -601,6 +610,42 @@ fn message_parts(content: &Value) -> Option<Vec<Part>> {
         }
         _ => None,
     }
+}
+
+/// Tags Codex writes at the start of a user-role text it injected. The
+/// list is explicit: other tag-led texts, such as a reply to a question the
+/// agent asked, carry the human's words.
+const INJECTED_TAGS: &[&str] = &[
+    "environment_context",
+    "user_instructions",
+    "INSTRUCTIONS",
+    "codex_internal_context",
+    "in-app-browser-context",
+    "external_codex_apps_open_page",
+    "turn_aborted",
+];
+
+/// Whether a user-role text is the harness's: an `AGENTS.md` instructions
+/// block or one of the [`INJECTED_TAGS`] blocks.
+fn is_injected_user_text(text: &str) -> bool {
+    let text = text.trim_start();
+    if text.starts_with("# AGENTS.md instructions") {
+        return true;
+    }
+    let Some(rest) = text.strip_prefix('<') else {
+        return false;
+    };
+    INJECTED_TAGS.iter().any(|tag| {
+        rest.strip_prefix(tag)
+            .is_some_and(|after| after.starts_with(['>', ' ', '\n', '/']))
+    })
+}
+
+fn first_text(parts: &[Part]) -> Option<&str> {
+    parts.iter().find_map(|part| match part {
+        Part::Known(KnownPart::Text { text, .. }) => Some(text.as_str()),
+        _ => None,
+    })
 }
 
 fn text_part(text: &str) -> Part {
@@ -1175,5 +1220,53 @@ mod tests {
         );
         let extraction = source.extract("t1").expect("extract without edge table");
         assert_eq!(extraction.good, 1);
+    }
+
+    #[test]
+    fn injected_user_blocks_are_marked_harness() {
+        for text in [
+            "<environment_context>\n<cwd>/repo</cwd>\n</environment_context>",
+            "<user_instructions>be brief</user_instructions>",
+            "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>x</INSTRUCTIONS>",
+            "<codex_internal_context>x</codex_internal_context>",
+            "<in-app-browser-context>x</in-app-browser-context>",
+            "<external_codex_apps_open_page>x</external_codex_apps_open_page>",
+        ] {
+            assert!(is_injected_user_text(text), "{text}");
+        }
+        for text in [
+            "run the tests",
+            "why is <environment_context> in my log?",
+            "<send_user_message_question_reply>yes</send_user_message_question_reply>",
+            "<environment_contextual>x</environment_contextual>",
+        ] {
+            assert!(!is_injected_user_text(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn user_messages_get_their_origin_from_the_text() {
+        let root = temp_root("origin");
+        write_threads_index(&root, &[("t1", "rollout-t1.jsonl", "/repo")]);
+        write_rollout(
+            &root,
+            "rollout-t1.jsonl",
+            &[
+                user_record(1, "2026-10-01T09:00:00Z", "run the tests"),
+                user_record(
+                    2,
+                    "2026-10-01T09:00:01Z",
+                    "<environment_context></environment_context>",
+                ),
+            ],
+        );
+        let extraction = CodexSource::new(&root).extract("t1").expect("extract");
+        let origins: Vec<_> = extraction
+            .session
+            .messages
+            .iter()
+            .map(|m| m.origin)
+            .collect();
+        assert_eq!(origins, vec![None, Some(Origin::Harness)]);
     }
 }

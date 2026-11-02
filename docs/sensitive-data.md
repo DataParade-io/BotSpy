@@ -33,8 +33,8 @@ root. Model cache resolution is different, as described below.
 
 | Source | Exact paths | Content |
 | --- | --- | --- |
-| Claude Code | `~/.claude/projects/<encoded-cwd>/<session>.jsonl`; `~/.claude/projects/<encoded-cwd>/subagents/agent-*.jsonl` (skipped, counted) | Prompts, replies, thinking, tool calls and results, costs, titles |
-| Cursor | `~/.cursor/state.vscdb` (plus `-wal`, `-shm`); `~/.cursor/projects/<encoded-cwd>/agent-transcripts/*.jsonl` | Composer conversations, bubbles, tool blobs |
+| Claude Code | `~/.claude/projects/<encoded-cwd>/<session>.jsonl`; `~/.claude/projects/<encoded-cwd>/<session>/subagents/agent-*.jsonl` (imported as sessions spawned by the parent) | Prompts, replies, thinking, tool calls and results, costs, titles |
+| Cursor | Cursor `state.vscdb` (plus `-wal`, `-shm`) in the application data directory (macOS: `~/Library/Application Support/Cursor/User/globalStorage/`); `~/.cursor/projects/<encoded-cwd>/agent-transcripts/` | Composer conversations, bubbles, tool blobs |
 | Codex | `~/.codex/state_5.sqlite`; `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | Threads, rollouts, messages, reasoning, tool calls, token usage |
 | Grok Bot | `~/.grok/sand-client-persistence/*.json` — entry logs, plus the reserved `roster.json` and `cloud-agents.json` | Messages, voice calls (raw passthrough), agent names, agent status |
 | Antigravity | `~/.gemini/antigravity/conversation_summaries.db`; `~/.gemini/antigravity/brain/<id>/payload.db`; `~/.gemini/antigravity/brain/<id>/.system_generated/logs/transcript.jsonl` | Conversations, planner responses, checkpoints, tool calls and results |
@@ -109,6 +109,22 @@ Redacted output goes to stdout only, so the same cautions as section 4
 apply to terminal logs and redirected output. `--plant` generates a demo
 session of fake secrets in a private temp directory that the example
 removes when it finishes (a crash can leave it behind).
+
+### Timeline page (the timeline example only)
+
+`cargo run --example timeline` is an optional example consumer, not part
+of the `botspy` CLI. It reads sessions through the public API and writes
+one HTML file (`timeline.html` in the current directory, or `--out`), and
+optionally the same figure as a standalone SVG (`--svg`) or PNG (`--png`):
+
+| Place | Content |
+| --- | --- |
+| the HTML, SVG and PNG files | Session timing (when each turn started and ended, the waiting time between turns, message counts per turn), the agent, the project name (last path segment of the project id) and the first 8 characters of each session id (sub-agents: their kind and the first 6 characters of their own id), plus parent and spawn links. Session titles only with `--titles`. Never message text |
+
+The page is self-contained (inline SVG and CSS) and loads nothing over the
+network, but it is a file on disk: treat it like other output, and note
+that it still reveals when you worked and on which projects. `--demo`
+draws generated synthetic sessions and reads no data root.
 
 ### 6. Not sensitive
 

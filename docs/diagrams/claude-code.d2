@@ -16,12 +16,12 @@ transcript: {
 }
 
 subagents: {
-  label: "Sensitive data: subagents/agent-*.jsonl\nsidechains: not read,\nskipped and counted"
+  label: "Sensitive data:\n<session>/subagents/agent-*.jsonl\nsidechains: read as sessions\nspawned by the parent"
   class: sensitive
 }
 
 discovery: {
-  label: "Discovery\nthrowaway scanner finds transcripts.\nSummaries carry message count,\nstarted, last activity, title.\nSkipped subagents and files\nare counted."
+  label: "Discovery\nthrowaway scanner finds transcripts.\nSummaries carry message count,\nstarted, last activity, title.\nSub-agent sessions are listed\nwith their parent; skipped\nfiles are counted."
   class: tool
 }
 
@@ -49,7 +49,7 @@ root -> project_dir: "one dir per project"
 project_dir -> transcript: "one file per session"
 transcript -> discovery: "scan"
 transcript -> adapter: "read line by line"
-subagents -> discovery: "skipped, counted"
+subagents -> discovery: "listed, counted"
 discovery -> adapter: "summaries; only new\nsessions are opened"
 adapter -> mapping: "each record type"
 mapping -> provenance: "line numbers kept"

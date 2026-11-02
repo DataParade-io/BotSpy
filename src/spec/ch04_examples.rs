@@ -22,6 +22,10 @@
 //!   values) or redacts, and the other examples then score only the
 //!   redacted text.
 //!
+//! - **Parallel sessions timeline** — one self-contained HTML page: how
+//!   many agents were working at once, project-grouped swimlanes with turns
+//!   and the time spent waiting for you, and sub-agents nested under their parent.
+//!
 //! ## Status: specified
 //!
 //! The scenarios live in
@@ -35,5 +39,8 @@
     "\n```\n\n",
     "### privacy.feature\n\n```gherkin\n",
     include_str!("../../features/04_examples/privacy.feature"),
+    "\n```\n\n",
+    "### timeline.feature\n\n```gherkin\n",
+    include_str!("../../features/04_examples/timeline.feature"),
     "\n```\n"
 )]

@@ -30,6 +30,6 @@ Feature: botspy doctor
   Scenario: JSON output carries the issues per source
     When I run "botspy doctor -o json" against the fixture home
     Then the exit code is 0
-    And stdout parses as a JSON array of 5 entries
+    And stdout parses as a JSON array of 6 entries
     And every JSON entry has an "issues" list
     And no JSON entry has any issues

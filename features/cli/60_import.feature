@@ -14,7 +14,7 @@ Feature: botspy import
   Scenario: Import mines every adapter into the default store
     When I run "botspy import" against the fixture home
     Then the exit code is 0
-    And stdout reports "12 new sessions"
+    And stdout reports "13 new sessions"
     And stdout reports "0 updated"
     And stdout reports "0 pruned"
     And the file at "{home}/.botspy/store.db" exists
@@ -24,18 +24,18 @@ Feature: botspy import
     And I run "botspy import" against the fixture home
     Then the exit code is 0
     And stdout reports "0 new sessions"
-    And stdout reports "12 unchanged"
+    And stdout reports "13 unchanged"
 
   Scenario: --db places the store at a caller-given path
     When I run "botspy import --db {out_dir}/imported.db" against the fixture home
     Then the exit code is 0
-    And stdout reports "12 new sessions"
+    And stdout reports "13 new sessions"
     And the file at "{out_dir}/imported.db" exists
 
   Scenario: --dry-run reports what would land and writes nothing
     When I run "botspy import --dry-run" against the fixture home
     Then the exit code is 0
-    And stdout reports "12 new sessions"
+    And stdout reports "13 new sessions"
     And stdout reports "dry run"
     And the file at "{home}/.botspy/store.db" does not exist
 
@@ -44,7 +44,7 @@ Feature: botspy import
     And I run "botspy import --no-embed --full --db {out_dir}/full.db" against the fixture home
     Then the exit code is 0
     And stdout reports "0 new sessions"
-    And stdout reports "12 unchanged"
+    And stdout reports "13 unchanged"
 
   Scenario: An import after a transcript change reports the update
     When I run "botspy import --no-embed --db {out_dir}/delta.db" against the fixture home
@@ -52,7 +52,7 @@ Feature: botspy import
     And I run "botspy import --no-embed --db {out_dir}/delta.db" against the fixture home
     Then the exit code is 0
     And stdout reports "1 updated"
-    And stdout reports "11 unchanged"
+    And stdout reports "12 unchanged"
 
   Scenario: An import after a transcript disappears prunes the session
     When I run "botspy import --no-embed --db {out_dir}/prune.db" against the fixture home
@@ -60,7 +60,7 @@ Feature: botspy import
     And I run "botspy import --no-embed --db {out_dir}/prune.db" against the fixture home
     Then the exit code is 0
     And stdout reports "1 pruned"
-    And stdout reports "11 unchanged"
+    And stdout reports "12 unchanged"
 
   @scoped_pruning
   Scenario: A filtered import preserves sessions belonging to other sources
@@ -70,7 +70,7 @@ Feature: botspy import
     And stdout reports "0 pruned"
     When I run "botspy sessions --db {out_dir}/selected.db" against the fixture home
     Then the exit code is 0
-    And stdout reports "12 sessions"
+    And stdout reports "13 sessions"
 
   @scoped_pruning
   Scenario: A filtered import prunes missing selected sessions and preserves all others
@@ -82,19 +82,19 @@ Feature: botspy import
     And stdout reports "dry run"
     When I run "botspy sessions --db {out_dir}/selected-prune.db" against the fixture home
     Then the exit code is 0
-    And stdout reports "12 sessions"
+    And stdout reports "13 sessions"
     When I run "botspy import --source claude_code --no-embed --db {out_dir}/selected-prune.db" against the fixture home
     Then the exit code is 0
     And stdout reports "1 pruned"
     When I run "botspy sessions --db {out_dir}/selected-prune.db" against the fixture home
     Then the exit code is 0
-    And stdout reports "11 sessions"
+    And stdout reports "12 sessions"
 
   Scenario: Sessions read from the store once it exists
     When I run "botspy import --db {out_dir}/imported.db" against the fixture home
     And I run "botspy sessions --db {out_dir}/imported.db" against an empty home
     Then the exit code is 0
-    And stdout reports "12 sessions"
+    And stdout reports "13 sessions"
 
   Scenario: --limit caps the store-backed listing
     When I run "botspy import --db {out_dir}/imported.db" against the fixture home

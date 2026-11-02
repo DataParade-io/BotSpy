@@ -6,7 +6,7 @@ root: {
 }
 
 summaries: {
-  label: "Sensitive data: Summaries index\nconversation_summaries.db\ntable conversations:\nid, name, updated_at"
+  label: "Sensitive data: Summaries index\nconversation_summaries.db\ntable conversation_summaries (current):\nconversation_id, title, last_modified_time,\nproject_id, agent_name,\nparent_conversation_id, nesting_depth\nolder table conversations:\nid, name, updated_at"
   class: sensitive
 }
 
@@ -16,7 +16,7 @@ transcript: {
 }
 
 payload: {
-  label: "Sensitive data: Payload database\nbrain/<conversation-id>/payload.db\ntable tool_links:\nstep_index, call_id, result"
+  label: "Sensitive data: Payload database (optional)\nbrain/<conversation-id>/payload.db\ntable tool_links:\nstep_index, call_id, result"
   class: sensitive
 }
 
@@ -31,7 +31,7 @@ ordering: {
 }
 
 mapping: {
-  label: "Record mapping\n\nUSER_INPUT      → User message\nPLANNER_RESPONSE → Assistant message\nCHECKPOINT       → Assistant + is_compaction_summary\nERROR_MESSAGE   → System + is_error\nTOOL_CALL with tool_links row   → ToolCall + ToolResult pair\nTOOL_CALL without a link row   → malformed, skipped"
+  label: "Record mapping\n\nUSER_INPUT      → User message\nPLANNER_RESPONSE → Assistant message (text, thinking, tool_calls)\nGENERIC          → Tool message\nSYSTEM_MESSAGE, EPHEMERAL_MESSAGE → System message\nCHECKPOINT       → Assistant + is_compaction_summary\nERROR_MESSAGE   → System + is_error\nTOOL_CALL with tool_links row   → ToolCall + ToolResult pair\nTOOL_CALL without a link row   → malformed, skipped"
   class: tool
 }
 
@@ -41,7 +41,7 @@ adapter: {
 }
 
 session: {
-  label: "Unified Session\nmessages, parts,\ntool results, provenance"
+  label: "Unified Session\nmessages, parts,\ntool results, provenance\nparent_id + sub-agent info\nfrom parent_conversation_id\nand nesting_depth"
   class: tool
 }
 

@@ -1,16 +1,18 @@
 //! The Claude Code importer.
 //!
 //! Watches append-only JSONL transcripts under
-//! `~/.claude/projects/<encoded-cwd>/` — one file per session — plus
-//! sibling `subagents/agent-*.jsonl` sidechain files. Discovery skips the
-//! sidechains (counting them); extraction follows each transcript by byte
-//! offset, maps records into the chapter-1 schema, parks auxiliary records
+//! `~/.claude/projects/<encoded-cwd>/` — one file per session — plus the
+//! sub-agent sidechains at `<session-id>/subagents/agent-<id>.jsonl`, each
+//! with an optional `agent-<id>.meta.json`. Discovery lists every sub-agent
+//! as its own session, `<parent-session-id>--agent-<id>`, spawned by its
+//! parent; extraction follows each transcript by byte offset, maps records into the chapter-1 schema, parks auxiliary records
 //! (`cost-state`, `pr-link`, `custom-title`) in session state, holds back
 //! partial trailing lines for the next read, and skips malformed lines and
 //! unknown record types with counters. The source tree is only ever read.
 
 use crate::schema::{
-    Agent, KnownPart, Message, Part, Provenance, Role, SessionCost, ToolArguments,
+    Agent, KnownPart, Message, Origin, Part, Provenance, Role, SessionCost, SubagentInfo,
+    ToolArguments,
 };
 use crate::session::SessionSummary;
 use serde_json::Value;
@@ -25,8 +27,9 @@ use std::sync::Mutex;
 pub struct ClaudeDiscovery {
     /// Session transcripts found (one per `*.jsonl` under a project dir).
     pub transcripts: usize,
-    /// Sidechain transcripts under `subagents/`, skipped by discovery.
-    pub skipped_subagents: usize,
+    /// Sub-agent transcripts under `<session-id>/subagents/`, listed as
+    /// sessions spawned by their parent (not included in `transcripts`).
+    pub subagents: usize,
     /// Other files that are not session transcripts, skipped.
     pub skipped_files: usize,
 }
@@ -37,7 +40,8 @@ pub struct ClaudeReport {
     pub root: PathBuf,
     pub project_dirs: usize,
     pub transcripts: usize,
-    pub skipped_subagents: usize,
+    /// Sub-agent sessions imported from `<session-id>/subagents/`.
+    pub subagents: usize,
     pub skipped_files: usize,
     pub issues: Vec<String>,
 }
@@ -79,8 +83,8 @@ impl ClaudeCodeSource {
     /// Discover sessions under the root. Each listed summary carries the
     /// activity its transcript records: message count, first/last activity
     /// timestamps, and recorded title, consistent with `extract`/`open`.
-    /// Sidechain files under a project
-    /// dir's `subagents/` folder are skipped and counted, not listed.
+    /// Sub-agent transcripts under `<session-id>/subagents/` are listed as
+    /// their own sessions (id `<session-id>--agent-<id>`) and counted.
     pub fn discover(&self) -> (Vec<SessionSummary>, ClaudeDiscovery) {
         // A throwaway scanner keeps this discovery side-effect free:
         // extract() records resume offsets, and discovery only summarizes
@@ -89,53 +93,50 @@ impl ClaudeCodeSource {
         let mut summaries = Vec::new();
         let mut stats = ClaudeDiscovery::default();
         for project in sorted_dirs(&self.root) {
-            let mut saw_session = false;
+            let mut session_ids = Vec::new();
             if let Ok(entries) = std::fs::read_dir(&project) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if !path.is_file() {
-                        continue;
-                    }
-                    if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
-                        let session_id = file_stem(&path);
-                        let summary = scanner
-                            .extract(&session_id)
-                            .map(|extraction| SessionSummary::from(&extraction.session))
-                            .unwrap_or_default();
-                        summaries.push(SessionSummary {
-                            id: session_id,
-                            agent: Agent::ClaudeCode,
-                            project_id: file_stem(&project),
-                            ..summary
-                        });
+                    if path.is_dir() {
+                        let parent = file_stem(&path);
+                        for agent in subagent_files(&path) {
+                            session_ids.push(subagent_session_id(&parent, &file_stem(&agent)));
+                            stats.subagents += 1;
+                        }
+                    } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+                        session_ids.push(file_stem(&path));
                         stats.transcripts += 1;
-                        saw_session = true;
-                    } else {
+                    } else if path.is_file() {
                         stats.skipped_files += 1;
                     }
                 }
             }
-            if !saw_session {
-                continue;
-            }
-            let subagents = project.join("subagents");
-            if subagents.is_dir() {
-                stats.skipped_subagents += count_files(&subagents, "jsonl");
+            for session_id in session_ids {
+                let summary = scanner
+                    .extract(&session_id)
+                    .map(|extraction| SessionSummary::from(&extraction.session))
+                    .unwrap_or_default();
+                summaries.push(SessionSummary {
+                    id: session_id,
+                    agent: Agent::ClaudeCode,
+                    project_id: file_stem(&project),
+                    ..summary
+                });
             }
         }
         summaries.sort_by(|a, b| a.id.cmp(&b.id));
         (summaries, stats)
     }
 
-    /// The doctor report: roots, transcript counts, skipped subagents,
-    /// and issues.
+    /// The doctor report: roots, transcript and sub-agent counts, skipped
+    /// files, and issues.
     pub fn doctor(&self) -> ClaudeReport {
         let (_, discovery) = self.discover();
         let mut report = ClaudeReport {
             root: self.root.clone(),
             project_dirs: sorted_dirs(&self.root).len(),
             transcripts: discovery.transcripts,
-            skipped_subagents: discovery.skipped_subagents,
+            subagents: discovery.subagents,
             skipped_files: discovery.skipped_files,
             issues: Vec::new(),
         };
@@ -153,7 +154,7 @@ impl ClaudeCodeSource {
                     .push(format!("transcript {} is unreadable", summary.id));
             }
         }
-        if report.transcripts == 0 {
+        if report.transcripts + report.subagents == 0 {
             report
                 .issues
                 .push("no session transcripts found under the root".to_string());
@@ -163,7 +164,13 @@ impl ClaudeCodeSource {
 
     fn transcript_path(&self, session_id: &str) -> PathBuf {
         for project in sorted_dirs(&self.root) {
-            let candidate = project.join(format!("{session_id}.jsonl"));
+            let candidate = match split_subagent_id(session_id) {
+                Some((parent, agent)) => project
+                    .join(parent)
+                    .join("subagents")
+                    .join(format!("agent-{agent}.jsonl")),
+                None => project.join(format!("{session_id}.jsonl")),
+            };
             if candidate.is_file() {
                 return candidate;
             }
@@ -192,6 +199,17 @@ impl ClaudeCodeSource {
             project_id: path.parent().map(file_stem).unwrap_or_default(),
             ..crate::session::Session::default()
         };
+        let subagent_of = split_subagent_id(session_id).map(|(parent, _)| parent.to_string());
+        if let Some(parent) = &subagent_of {
+            // <project>/<parent>/subagents/agent-<id>.jsonl
+            session.project_id = path
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::parent)
+                .map(file_stem)
+                .unwrap_or_default();
+            apply_subagent_meta(&mut session, &path, parent);
+        }
         let mut good = 0;
         let mut skipped = crate::importer::SkipCounter::default();
         let mut pending_partial = 0;
@@ -223,6 +241,23 @@ impl ClaudeCodeSource {
                     continue;
                 }
             };
+            // A sidechain record belongs to a sub-agent's transcript. If one
+            // turns up in a main transcript it is not the parent's own work.
+            if subagent_of.is_none()
+                && record.get("isSidechain").and_then(Value::as_bool) == Some(true)
+            {
+                skipped.unknown += 1;
+                continue;
+            }
+            // Every record carries the working directory; the first
+            // non-empty one names the session's project.
+            if session.metadata.cwd.is_none() {
+                session.metadata.cwd = record
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .filter(|cwd| !cwd.is_empty())
+                    .map(str::to_string);
+            }
             match record.get("type").and_then(Value::as_str) {
                 Some("cost-state") => apply_cost(&mut session, &record),
                 Some("pr-link") => {
@@ -327,10 +362,20 @@ impl ClaudeCodeSource {
             "assistant" => Role::Assistant,
             _ => Role::System,
         };
+        let is_compact_summary = record
+            .get("isCompactSummary")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let origin = if ty == "user" {
+            harness_origin(record, &parts)
+        } else {
+            None
+        };
         let mut message = Message {
             role,
             parts,
-            is_compaction_summary: ty == "summary",
+            origin,
+            is_compaction_summary: ty == "summary" || is_compact_summary,
             ..Message::default()
         };
         message.timestamp = record
@@ -353,6 +398,151 @@ impl ClaudeCodeSource {
             ..Provenance::default()
         });
         Some(Ok(message))
+    }
+}
+
+/// Tags that only the harness writes at the start of a user-role text. The
+/// list is explicit on purpose: `<pasted_content>` and `<bash-input>` are
+/// the human's own input and a broad "starts with <" rule would drop them.
+const HARNESS_TAGS: &[&str] = &[
+    "task-notification",
+    "system-reminder",
+    "wake",
+    "project_claude_message",
+    "ci-monitor-event",
+    "relay",
+    "artifact-view-context",
+    "create-pr-command",
+    "command-name",
+    "command-message",
+    "command-args",
+    "local-command-stdout",
+    "local-command-stderr",
+    "local-command-caveat",
+    "cross-session-message",
+];
+
+/// Plain-text openings the harness writes under the user role.
+const HARNESS_PREFIXES: &[&str] = &[
+    "This session is being continued from a previous conversation",
+    "Another Claude session sent a message",
+    "[Request interrupted by user",
+];
+
+/// Whether a user text is led by one of the [`HARNESS_TAGS`] or
+/// [`HARNESS_PREFIXES`].
+fn is_harness_text(text: &str) -> bool {
+    let text = text.trim_start();
+    if HARNESS_PREFIXES
+        .iter()
+        .any(|prefix| text.starts_with(prefix))
+    {
+        return true;
+    }
+    let Some(rest) = text.strip_prefix('<') else {
+        return false;
+    };
+    HARNESS_TAGS.iter().any(|tag| {
+        rest.strip_prefix(tag)
+            .is_some_and(|after| after.starts_with(['>', ' ', '\n', '/']))
+    })
+}
+
+/// The `kind` of a record's `origin` key: `human`, `peer`,
+/// `task-notification` and so on. The key is an object with a `kind`, or a
+/// plain string.
+fn origin_kind(record: &Value) -> Option<&str> {
+    match record.get("origin")? {
+        Value::String(kind) => Some(kind),
+        other => other.get("kind").and_then(Value::as_str).or(Some("")),
+    }
+}
+
+/// The origin of a user record. `None` means the human typed it.
+///
+/// - `origin.kind == "human"` is the human's own message, whatever else
+///   the text looks like.
+/// - `origin.kind == "peer"` is mail from another agent session
+///   ([`Origin::AgentMessage`]).
+/// - Any other `origin` key, a record flagged `isMeta` or
+///   `isCompactSummary`, and a record whose first text part is harness
+///   text are [`Origin::Harness`].
+fn harness_origin(record: &Value, parts: &[Part]) -> Option<Origin> {
+    let flagged = |key: &str| record.get(key).and_then(Value::as_bool).unwrap_or(false);
+    let kind = origin_kind(record);
+    if kind == Some("human") {
+        return None;
+    }
+    if kind == Some("peer") {
+        return Some(Origin::AgentMessage);
+    }
+    let first_text = parts.iter().find_map(|part| match part {
+        Part::Known(KnownPart::Text { text, .. }) => Some(text.as_str()),
+        _ => None,
+    });
+    (kind.is_some()
+        || flagged("isMeta")
+        || flagged("isCompactSummary")
+        || first_text.is_some_and(is_harness_text))
+    .then_some(Origin::Harness)
+}
+
+/// Marker between the parent session id and the sub-agent file stem's id
+/// in a sub-agent session id. Session ids are UUIDs, which never hold `--`.
+const SUBAGENT_MARK: &str = "--agent-";
+
+/// `<parent-session-id>--agent-<agent-id>`, from the file stem `agent-<id>`.
+fn subagent_session_id(parent: &str, agent_stem: &str) -> String {
+    format!("{parent}--{agent_stem}")
+}
+
+/// Split a sub-agent session id into (parent session id, agent id).
+fn split_subagent_id(session_id: &str) -> Option<(&str, &str)> {
+    let (parent, agent) = session_id.split_once(SUBAGENT_MARK)?;
+    (!parent.is_empty() && !agent.is_empty()).then_some((parent, agent))
+}
+
+/// The `agent-*.jsonl` files under `<session-dir>/subagents`, sorted.
+fn subagent_files(session_dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(session_dir.join("subagents"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.is_file()
+                        && path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+                        && file_stem(path).starts_with("agent-")
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort();
+    files
+}
+
+/// Mark the session as spawned by its parent, reading the sibling
+/// `agent-<id>.meta.json` when there is one. A missing or unreadable meta
+/// file leaves the defaults: kind "subagent", no depth.
+fn apply_subagent_meta(session: &mut crate::session::Session, transcript: &Path, parent: &str) {
+    let meta: Value = std::fs::read_to_string(transcript.with_extension("meta.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or(Value::Null);
+    let text = |key: &str| {
+        meta.get(key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    session.parent_id = Some(parent.to_string());
+    session.subagent = Some(SubagentInfo {
+        kind: text("agentType").unwrap_or_else(|| "subagent".to_string()),
+        nesting_depth: meta.get("spawnDepth").and_then(Value::as_u64),
+    });
+    session.metadata.title = text("description");
+    if let Some(model) = text("model") {
+        session.metadata.models.push(model);
     }
 }
 
@@ -485,23 +675,6 @@ fn sorted_dirs(root: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-fn count_files(dir: &Path, extension: &str) -> usize {
-    std::fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter(|entry| {
-                    entry
-                        .path()
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| ext == extension)
-                })
-                .count()
-        })
-        .unwrap_or(0)
-}
-
 fn file_stem(path: &Path) -> String {
     path.file_stem()
         .and_then(|stem| stem.to_str())
@@ -539,9 +712,40 @@ mod tests {
         )
     }
 
-    #[test]
-    fn discovery_skips_sidechains_and_counts_them() {
-        let root = std::env::temp_dir().join(format!("botspy-cc-{}", std::process::id()));
+    fn write_subagent(root: &Path, parent: &str, agent: &str, meta: Option<&str>) {
+        let dir = root.join("proj-a").join(parent).join("subagents");
+        std::fs::create_dir_all(&dir).unwrap();
+        let sidechain = |uuid: &str, ty: &str, ts: &str, body: &str| {
+            format!(
+                r#"{{"isSidechain":true,"agentId":"{agent}","sessionId":"{parent}","type":"{ty}","uuid":"{uuid}","timestamp":"{ts}","message":{body}}}"#
+            )
+        };
+        let lines = [
+            sidechain(
+                "c1",
+                "user",
+                "2026-10-01T09:01:00Z",
+                r#"{"role":"user","content":"do the thing"}"#,
+            ),
+            sidechain(
+                "c2",
+                "assistant",
+                "2026-10-01T09:02:00Z",
+                r#"{"role":"assistant","content":[{"type":"text","text":"done"}]}"#,
+            ),
+        ];
+        std::fs::write(
+            dir.join(format!("agent-{agent}.jsonl")),
+            lines.join("\n") + "\n",
+        )
+        .unwrap();
+        if let Some(meta) = meta {
+            std::fs::write(dir.join(format!("agent-{agent}.meta.json")), meta).unwrap();
+        }
+    }
+
+    fn root_with_parent(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("botspy-cc-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         write_transcript(
             &root,
@@ -549,18 +753,85 @@ mod tests {
             "s1.jsonl",
             &[user_record("u1", "", "2026-10-01T09:00:00Z", "hi")],
         );
-        let sub = root.join("proj-a").join("subagents");
-        std::fs::create_dir_all(&sub).unwrap();
-        std::fs::write(sub.join("agent-1.jsonl"), "{}\n").unwrap();
         std::fs::write(root.join("proj-a").join("notes.txt"), "junk").unwrap();
+        root
+    }
+
+    #[test]
+    fn discovery_lists_subagents_as_sessions_spawned_by_the_parent() {
+        let root = root_with_parent("disc");
+        write_subagent(
+            &root,
+            "s1",
+            "a1",
+            Some(
+                r#"{"agentType":"Explore","description":"look around","toolUseId":"t1","spawnDepth":2,"model":"m-1"}"#,
+            ),
+        );
         let source = ClaudeCodeSource::new(&root);
         let (summaries, stats) = source.discover();
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].id, "s1");
-        assert_eq!(summaries[0].project_id, "proj-a");
+        let ids: Vec<&str> = summaries.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["s1", "s1--agent-a1"]);
+        assert_eq!(summaries[1].project_id, "proj-a");
+        assert_eq!(summaries[1].message_count, 2);
         assert_eq!(stats.transcripts, 1);
-        assert_eq!(stats.skipped_subagents, 1);
+        assert_eq!(stats.subagents, 1);
         assert_eq!(stats.skipped_files, 1);
+        let doctor = source.doctor();
+        assert_eq!(doctor.subagents, 1);
+        assert!(doctor.issues.is_empty(), "{:?}", doctor.issues);
+
+        let child = source.extract("s1--agent-a1").unwrap().session;
+        assert_eq!(child.id, "s1--agent-a1");
+        assert_eq!(child.parent_id.as_deref(), Some("s1"));
+        let info = child.subagent.unwrap();
+        assert_eq!(info.kind, "Explore");
+        assert_eq!(info.nesting_depth, Some(2));
+        assert_eq!(child.metadata.title.as_deref(), Some("look around"));
+        assert_eq!(child.metadata.models, ["m-1"]);
+        assert_eq!(child.project_id, "proj-a");
+        assert_eq!(child.messages.len(), 2);
+        // The parent is untouched: no messages, no parent link.
+        let parent = source.extract("s1").unwrap().session;
+        assert_eq!(parent.messages.len(), 1);
+        assert_eq!(parent.parent_id, None);
+        assert_eq!(parent.subagent, None);
+    }
+
+    #[test]
+    fn a_subagent_without_meta_is_still_imported() {
+        let root = root_with_parent("nometa");
+        write_subagent(&root, "s1", "a2", None);
+        write_subagent(&root, "s1", "a3", Some("not json"));
+        let source = ClaudeCodeSource::new(&root);
+        for id in ["s1--agent-a2", "s1--agent-a3"] {
+            let child = source.extract(id).unwrap().session;
+            assert_eq!(child.parent_id.as_deref(), Some("s1"));
+            let info = child.subagent.unwrap();
+            assert_eq!(info.kind, "subagent");
+            assert_eq!(info.nesting_depth, None);
+        }
+        assert_eq!(source.discover().1.subagents, 2);
+    }
+
+    #[test]
+    fn sidechain_records_in_a_main_transcript_are_not_the_parents() {
+        let root = root_with_parent("stray");
+        let mut stray = user_record("x1", "", "2026-10-01T09:00:05Z", "side work");
+        stray = stray.replacen("{\"type\"", "{\"isSidechain\":true,\"type\"", 1);
+        append(&root, "s1.jsonl", &stray);
+        let extraction = ClaudeCodeSource::new(&root).extract("s1").unwrap();
+        assert_eq!(extraction.good, 1);
+        assert_eq!(extraction.skipped.unknown, 1);
+    }
+
+    fn append(root: &Path, name: &str, line: &str) {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(root.join("proj-a").join(name))
+            .unwrap();
+        writeln!(file, "{line}").unwrap();
     }
 
     #[test]
@@ -699,5 +970,97 @@ mod tests {
         let second = source.extract("s1").expect("extract again");
         assert_eq!(second.good, 1);
         assert_eq!(second.pending_partial, 0);
+    }
+
+    fn origin_of(extra: &str, text: &str) -> Option<Origin> {
+        let record: Value = serde_json::from_str(&format!(
+            r#"{{"type":"user",{extra}"message":{{"role":"user","content":{}}}}}"#,
+            Value::String(text.to_string())
+        ))
+        .unwrap();
+        let source = ClaudeCodeSource::new("unused");
+        source
+            .normalize_record(&record, Path::new("t.jsonl"), 1)
+            .unwrap()
+            .ok()
+            .unwrap()
+            .origin
+    }
+
+    #[test]
+    fn harness_text_is_marked_and_the_humans_is_not() {
+        let harness = Some(Origin::Harness);
+        assert_eq!(origin_of("", "fix the build"), None);
+        assert_eq!(origin_of(r#""origin":{"kind":"human"},"#, "<wake>x"), None);
+        assert_eq!(origin_of(r#""isMeta":true,"#, "a skill body"), harness);
+        assert_eq!(origin_of(r#""isCompactSummary":true,"#, "summary"), harness);
+        assert_eq!(
+            origin_of(r#""origin":{"kind":"task-notification"},"#, "done"),
+            harness
+        );
+        assert_eq!(
+            origin_of(r#""origin":{"kind":"peer"},"#, "hello"),
+            Some(Origin::AgentMessage)
+        );
+        for tag in HARNESS_TAGS {
+            assert_eq!(
+                origin_of("", &format!("<{tag}>x</{tag}>")),
+                harness,
+                "{tag}"
+            );
+        }
+        for text in HARNESS_PREFIXES {
+            assert_eq!(origin_of("", text), harness, "{text}");
+        }
+        assert_eq!(origin_of("", "<pasted_content>log</pasted_content>"), None);
+        assert_eq!(origin_of("", "<bash-input>ls</bash-input>"), None);
+        assert_eq!(origin_of("", "<wakeful>not a tag</wakeful>"), None);
+    }
+
+    #[test]
+    fn a_compact_summary_flag_sets_the_compaction_marker() {
+        let record: Value = serde_json::from_str(
+            r#"{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"s"}}"#,
+        )
+        .unwrap();
+        let message = ClaudeCodeSource::new("unused")
+            .normalize_record(&record, Path::new("t.jsonl"), 1)
+            .unwrap()
+            .ok()
+            .unwrap();
+        assert!(message.is_compaction_summary);
+    }
+
+    #[test]
+    fn the_first_non_empty_record_cwd_is_the_session_cwd() {
+        let root = std::env::temp_dir().join(format!("botspy-cc-cwd-{}", std::process::id()));
+        let with_cwd = |uuid: &str, cwd: &str| {
+            format!(
+                r#"{{"type":"user","uuid":"{uuid}","parentUuid":"","timestamp":"2026-10-01T09:00:00Z","cwd":"{cwd}","message":{{"role":"user","content":"hi"}}}}"#
+            )
+        };
+        write_transcript(
+            &root,
+            "proj-a",
+            "s1.jsonl",
+            &[
+                with_cwd("u1", ""),
+                with_cwd("u2", "/work/first"),
+                with_cwd("u3", "/work/second"),
+            ],
+        );
+        write_transcript(
+            &root,
+            "proj-a",
+            "s2.jsonl",
+            &[user_record("u4", "", "2026-10-01T09:00:00Z", "no cwd")],
+        );
+        let source = ClaudeCodeSource::new(&root);
+        let extracted = source.extract("s1").unwrap().session;
+        assert_eq!(extracted.metadata.cwd.as_deref(), Some("/work/first"));
+        let (summaries, _) = source.discover();
+        assert_eq!(summaries[0].metadata.cwd.as_deref(), Some("/work/first"));
+        assert_eq!(summaries[1].metadata.cwd, None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
