@@ -514,6 +514,12 @@ cargo run --example meter -- --demo --theme light --png docs/images/meter.light.
 cargo run --example meter -- --demo --theme dark  --png docs/images/meter.dark.png
 ```
 
+Each bar is a week by default. `--by day` shows which days were hard over a long stretch, and `--by hour` with a one-day `--since`/`--until` shows a single day. `--utc-offset -4` places days and hours in your local time.
+
+```
+cargo run --example meter -- --by day --utc-offset -4 --png meter-days.png <data-root>
+```
+
 Flags: `--since`, `--until` (limit the chart to a window), `--svg PATH`,
 `--png PATH` with `--scale N` (default 2), `--theme light|dark` (default
 light), `--demo`. Weeks start on Monday, UTC; messages without a timestamp

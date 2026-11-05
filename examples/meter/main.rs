@@ -8,7 +8,8 @@
 //! ```text
 //! cargo run --example meter [path-to-agent-data-root]
 //! cargo run --example meter -- [--since T] [--until T] [--svg PATH]
-//!     [--png PATH] [--scale N] [--theme light|dark] [--demo]
+//!     [--png PATH] [--scale N] [--theme light|dark] [--by week|day|hour]
+//!     [--utc-offset HOURS] [--demo]
 //!     [path-to-agent-data-root]
 //! ```
 //!
@@ -26,6 +27,11 @@
 //!   using the system fonts.
 //! - `--theme light|dark` picks the colours of the SVG and PNG (default
 //!   light).
+//! - `--by week|day|hour` sets what one bar covers (default week). Days show
+//!   which ones were hard over a long stretch; hours show one day up close.
+//! - `--utc-offset HOURS` places days and hours in your local time, such as
+//!   `-4` (default 0, UTC). A fixed offset, so it does not follow daylight
+//!   saving across a change.
 //! - `--since T` / `--until T` keep only messages inside the window (an
 //!   RFC 3339 time or a bare date) and stretch the axis to cover it.
 //!
@@ -67,14 +73,14 @@ pub mod raster;
 pub mod scoring;
 
 use self::activity::{parse_time, Ms};
-use self::chart::{Figure, Theme};
+use self::chart::{Figure, Period, Theme};
 use botspy::Session;
 use common::{collect_sessions, default_root};
 use scoring::{favors_thanks, score_history, score_session};
 use std::io::Write;
 use std::path::PathBuf;
 
-const USAGE: &str = "usage: meter [--since T] [--until T] [--svg PATH] [--png PATH] [--scale N] [--theme light|dark] [--demo] [path-to-agent-data-root]";
+const USAGE: &str = "usage: meter [--since T] [--until T] [--svg PATH] [--png PATH] [--scale N] [--theme light|dark] [--by week|day|hour] [--utc-offset HOURS] [--demo] [path-to-agent-data-root]";
 
 /// What the command line asked for.
 #[derive(Debug, Clone, Default)]
@@ -86,6 +92,8 @@ pub struct Options {
     /// PNG scale (device pixels per figure pixel).
     pub scale: f32,
     pub theme: Theme,
+    pub by: Period,
+    pub utc_offset: i64,
     pub demo: bool,
     pub root: Option<PathBuf>,
 }
@@ -130,6 +138,24 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
                     other => return Err(format!("--theme: {other:?} is not light or dark")),
                 };
             }
+            "--by" => {
+                options.by = match value(arg)?.as_str() {
+                    "week" => Period::Week,
+                    "day" => Period::Day,
+                    "hour" => Period::Hour,
+                    other => return Err(format!("--by: {other:?} is not week, day or hour")),
+                };
+            }
+            "--utc-offset" => {
+                let text = value(arg)?;
+                options.utc_offset = text
+                    .parse::<i64>()
+                    .ok()
+                    .filter(|hours| hours.abs() <= 14)
+                    .ok_or_else(|| {
+                        format!("--utc-offset: {text:?} is not a whole number of hours")
+                    })?;
+            }
             "--demo" => options.demo = true,
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
             path if options.root.is_none() => options.root = Some(PathBuf::from(path)),
@@ -155,8 +181,19 @@ fn sessions_for(options: &Options, given: Option<Vec<Session>>) -> Vec<Session> 
 /// the data root is read.
 pub fn figure_for(args: &[String], given: Option<Vec<Session>>) -> Result<Figure, String> {
     let options = parse_args(args)?;
-    let weeks = chart::weekly(&sessions_for(&options, given), options.since, options.until);
-    Ok(chart::figure(&weeks, options.theme))
+    let bars = chart::periods(
+        &sessions_for(&options, given),
+        options.since,
+        options.until,
+        options.by,
+        options.utc_offset,
+    );
+    Ok(chart::figure_by(
+        &bars,
+        options.theme,
+        options.by,
+        options.utc_offset,
+    ))
 }
 
 /// The text report: thanks and F-bombs in your messages, per session and
@@ -211,8 +248,14 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
             report(&sessions, &root, out);
             return Ok(Vec::new());
         }
-        let weeks = chart::weekly(&sessions, options.since, options.until);
-        let figure = chart::figure(&weeks, options.theme);
+        let bars = chart::periods(
+            &sessions,
+            options.since,
+            options.until,
+            options.by,
+            options.utc_offset,
+        );
+        let figure = chart::figure_by(&bars, options.theme, options.by, options.utc_offset);
         let mut written = Vec::new();
         if let Some(path) = &options.svg {
             write(path, figure.svg.as_bytes())?;

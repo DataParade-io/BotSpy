@@ -15,6 +15,7 @@ use super::activity::parse_time;
 
 const DAY_MS: Ms = 86_400_000;
 const WEEK_MS: Ms = 7 * DAY_MS;
+const HOUR_MS: Ms = 3_600_000;
 
 /// Even padding between the content and the edge of the figure.
 pub const PAD: f64 = 16.0;
@@ -27,6 +28,8 @@ const CHAR_W: f64 = 0.58;
 /// Room on the left for the count labels of the vertical axis.
 const GUTTER: f64 = 40.0;
 const PLOT_W: f64 = 900.0;
+/// A bar's slot narrower than this has no room for a count label.
+const MIN_LABEL_SLOT: f64 = 8.0;
 const WIDTH: f64 = GUTTER + PLOT_W;
 /// Height shared by the tallest thanks bar and the tallest F-bomb bar.
 const PLOT_H: f64 = 220.0;
@@ -73,10 +76,60 @@ fn colour(name: &str, theme: Theme) -> &'static str {
     }
 }
 
-/// One Monday-to-Sunday week (UTC) of your messages.
+/// How long one bar of the figure is.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Period {
+    #[default]
+    Week,
+    Day,
+    Hour,
+}
+
+impl Period {
+    /// The start of the period holding `ms`.
+    fn start(self, ms: Ms) -> Ms {
+        match self {
+            Period::Week => week_start(ms),
+            Period::Day => ms.div_euclid(DAY_MS) * DAY_MS,
+            Period::Hour => ms.div_euclid(HOUR_MS) * HOUR_MS,
+        }
+    }
+
+    fn length(self) -> Ms {
+        match self {
+            Period::Week => WEEK_MS,
+            Period::Day => DAY_MS,
+            Period::Hour => HOUR_MS,
+        }
+    }
+
+    /// One bar's period, for the figure's description.
+    fn noun(self) -> &'static str {
+        match self {
+            Period::Week => "week",
+            Period::Day => "day",
+            Period::Hour => "hour",
+        }
+    }
+
+    /// The x axis caption.
+    fn caption(self, utc_offset_hours: i64) -> String {
+        let zone = match utc_offset_hours {
+            0 => "UTC".to_string(),
+            hours => format!("UTC{hours:+}"),
+        };
+        match self {
+            Period::Week => format!("Week starting (Monday, {zone})"),
+            Period::Day => format!("Day ({zone})"),
+            Period::Hour => format!("Hour ({zone})"),
+        }
+    }
+}
+
+/// One bar's period of your messages (a week unless `--by` says otherwise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Week {
-    /// Midnight UTC of the Monday that starts the week.
+    /// The start of the period, in the figure's local time.
     pub start: Ms,
     pub thanks: u64,
     pub f_bombs: u64,
@@ -94,6 +147,19 @@ pub fn week_start(ms: Ms) -> Ms {
 /// window, and stretch the axis to cover it. Messages without a timestamp
 /// cannot be placed on a week and are left out.
 pub fn weekly(sessions: &[Session], since: Option<Ms>, until: Option<Ms>) -> Vec<Week> {
+    periods(sessions, since, until, Period::Week, 0)
+}
+
+/// Your messages per `period`, oldest first, as [`weekly`] does for weeks.
+/// `utc_offset_hours` shifts period boundaries to local time.
+pub fn periods(
+    sessions: &[Session],
+    since: Option<Ms>,
+    until: Option<Ms>,
+    period: Period,
+    utc_offset_hours: i64,
+) -> Vec<Week> {
+    let local = |ms: Ms| period.start(ms + utc_offset_hours * HOUR_MS);
     let mut counts: BTreeMap<Ms, (u64, u64)> = BTreeMap::new();
     for session in sessions {
         for message in &session.messages {
@@ -109,7 +175,7 @@ pub fn weekly(sessions: &[Session], since: Option<Ms>, until: Option<Ms>) -> Vec
             let Some(text) = typed_text(message) else {
                 continue;
             };
-            let entry = counts.entry(week_start(time)).or_default();
+            let entry = counts.entry(local(time)).or_default();
             if is_thanks(&text) {
                 entry.0 += 1;
             }
@@ -121,8 +187,8 @@ pub fn weekly(sessions: &[Session], since: Option<Ms>, until: Option<Ms>) -> Vec
     let hits = counts.iter().filter(|(_, (t, f))| t + f > 0);
     let first = hits.clone().map(|(start, _)| *start).min();
     let last = hits.map(|(start, _)| *start).max();
-    let low = [first, since.map(week_start)].into_iter().flatten().min();
-    let high = [last, until.map(week_start)].into_iter().flatten().max();
+    let low = [first, since.map(local)].into_iter().flatten().min();
+    let high = [last, until.map(local)].into_iter().flatten().max();
     let (Some(low), Some(high)) = (low, high) else {
         return Vec::new();
     };
@@ -135,7 +201,7 @@ pub fn weekly(sessions: &[Session], since: Option<Ms>, until: Option<Ms>) -> Vec
             thanks,
             f_bombs,
         });
-        start += WEEK_MS;
+        start += period.length();
     }
     weeks
 }
@@ -262,6 +328,15 @@ fn css(theme: Theme) -> String {
 
 /// Draw the weekly figure for `weeks`.
 pub fn figure(weeks: &[Week], theme: Theme) -> Figure {
+    figure_by(weeks, theme, Period::Week, 0)
+}
+
+/// The figure for bars of any `period`.
+pub fn figure_by(weeks: &[Week], theme: Theme, period: Period, utc_offset_hours: i64) -> Figure {
+    let label_of = |start: Ms| match period {
+        Period::Hour => format!("{:02}:00", start.rem_euclid(DAY_MS) / HOUR_MS),
+        _ => date_of(start),
+    };
     let thanks: u64 = weeks.iter().map(|week| week.thanks).sum();
     let f_bombs: u64 = weeks.iter().map(|week| week.f_bombs).sum();
 
@@ -361,7 +436,7 @@ pub fn figure(weeks: &[Week], theme: Theme) -> Figure {
     if max_f_bombs > 0 {
         tick(plot_bottom, &grouped(max_f_bombs));
     }
-    let starts: Vec<String> = weeks.iter().map(|week| date_of(week.start)).collect();
+    let starts: Vec<String> = weeks.iter().map(|week| label_of(week.start)).collect();
     let _ = writeln!(
         body,
         "<g class=\"weeks\" data-weeks=\"{}\" data-starts=\"{}\">",
@@ -370,8 +445,19 @@ pub fn figure(weeks: &[Week], theme: Theme) -> Figure {
     );
     for (index, week) in weeks.iter().enumerate() {
         let x = centre(index) - bar_w / 2.0;
-        let date = date_of(week.start);
-        let labelled = |count: u64| text_width(&grouped(count), value_size) + 2.0 <= slot;
+        let date = label_of(week.start);
+        // Narrow bars have room for a label only on the tallest ones, and
+        // the narrowest have room for none.
+        let peak = max_thanks.max(max_f_bombs);
+        let labelled = |count: u64| {
+            if slot < MIN_LABEL_SLOT {
+                false
+            } else if slot < 24.0 {
+                count * 3 >= peak && text_width(&grouped(count), value_size) <= 2.5 * slot
+            } else {
+                text_width(&grouped(count), value_size) + 2.0 <= slot
+            }
+        };
         if week.thanks > 0 {
             let height = bar_h(week.thanks);
             let _ = writeln!(
@@ -420,7 +506,10 @@ pub fn figure(weeks: &[Week], theme: Theme) -> Figure {
     );
 
     // ---- x axis: week-start dates, thinned so they never collide ----
-    let date_w = text_width("2026-09-28", axis_size);
+    let date_w = text_width(
+        &label_of(weeks.first().map_or(0, |week| week.start)),
+        axis_size,
+    );
     let step = ((date_w + 12.0) / slot).ceil().max(1.0) as usize;
     let bottom_room = if max_f_bombs > 0 {
         label_room + value_size * DESCENT
@@ -435,7 +524,7 @@ pub fn figure(weeks: &[Week], theme: Theme) -> Figure {
             let _ = writeln!(
                 body,
                 "<text class=\"axis\" x=\"{x:.1}\" y=\"{axis_y:.1}\" font-size=\"{axis_size}\" text-anchor=\"middle\">{}</text>",
-                date_of(week.start)
+                label_of(week.start)
             );
         }
     }
@@ -443,18 +532,20 @@ pub fn figure(weeks: &[Week], theme: Theme) -> Figure {
     let caption_y = axis_y + 6.0 + axis_size;
     let _ = writeln!(
         body,
-        "<text class=\"muted caption\" x=\"{:.1}\" y=\"{caption_y:.1}\" font-size=\"{axis_size}\" text-anchor=\"middle\">Week starting (Monday, UTC)</text>",
-        GUTTER + PLOT_W / 2.0
+        "<text class=\"muted caption\" x=\"{:.1}\" y=\"{caption_y:.1}\" font-size=\"{axis_size}\" text-anchor=\"middle\">{}</text>",
+        GUTTER + PLOT_W / 2.0,
+        period.caption(utc_offset_hours)
     );
     // The content ends where the caption's descenders end.
     let height = (caption_y + DESCENT * axis_size).ceil();
 
     // ---- assemble: the viewBox is the content plus an even padding ----
     let view_box = [-PAD, -PAD, WIDTH + 2.0 * PAD, height + 2.0 * PAD];
+    let noun = period.noun();
     let mut svg = String::new();
     let _ = writeln!(
         svg,
-        "<svg class=\"figure\" xmlns=\"{SVG_NS}\" width=\"{}\" height=\"{}\" viewBox=\"{} {} {} {}\" font-family=\"{FONT}\" role=\"img\" aria-label=\"Thanks and F-bombs in your messages per week, as bars up and down from a zero axis\" data-pad=\"{PAD}\" data-content=\"0 0 {WIDTH} {height}\">",
+        "<svg class=\"figure\" xmlns=\"{SVG_NS}\" width=\"{}\" height=\"{}\" viewBox=\"{} {} {} {}\" font-family=\"{FONT}\" role=\"img\" aria-label=\"Thanks and F-bombs in your messages per {noun}, as bars up and down from a zero axis\" data-pad=\"{PAD}\" data-content=\"0 0 {WIDTH} {height}\">",
         view_box[2], view_box[3], view_box[0], view_box[1], view_box[2], view_box[3]
     );
     let _ = writeln!(svg, "<style>\n{}\n</style>", css(theme));
@@ -482,6 +573,44 @@ mod tests {
     // harness, where nothing here is used.
     #[allow(unused_imports)]
     use super::*;
+
+    #[test]
+    fn periods_start_where_they_should() {
+        let time = parse_time("2026-10-20T15:30:00Z").unwrap();
+        assert_eq!(
+            Period::Hour.start(time),
+            parse_time("2026-10-20T15:00:00Z").unwrap()
+        );
+        assert_eq!(
+            Period::Day.start(time),
+            parse_time("2026-10-20T00:00:00Z").unwrap()
+        );
+        assert_eq!(
+            Period::Week.start(time),
+            parse_time("2026-10-19T00:00:00Z").unwrap()
+        );
+    }
+
+    #[test]
+    fn a_window_stretches_the_axis_to_every_period_in_it() {
+        let since = parse_time("2026-10-20T04:00:00Z");
+        let until = parse_time("2026-10-21T03:59:59Z");
+        let hours = periods(&[], since, until, Period::Hour, -4);
+        assert_eq!(hours.len(), 24);
+        assert_eq!(date_of(hours[0].start), "2026-10-20");
+        let days = periods(&[], since, until, Period::Day, -4);
+        assert_eq!(days.len(), 1);
+    }
+
+    #[test]
+    fn hour_figures_label_hours_and_name_the_zone() {
+        let since = parse_time("2026-10-20T04:00:00Z");
+        let until = parse_time("2026-10-21T03:59:59Z");
+        let hours = periods(&[], since, until, Period::Hour, -4);
+        let svg = figure_by(&hours, Theme::Light, Period::Hour, -4).svg;
+        assert!(svg.contains("00:00"));
+        assert!(svg.contains("Hour (UTC-4)"));
+    }
 
     #[test]
     fn weeks_start_on_monday() {

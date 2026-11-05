@@ -186,6 +186,43 @@ Feature: Example consumers of the unified history
     Then the figure has 200 weeks
     And no bar is labelled
 
+  Scenario: Narrow bars label only the tallest ones
+    Given I typed 20 thanks and 0 F-bombs at 2026-08-24T10:00:00Z
+    And I typed 1 thanks and 0 F-bombs at 2026-11-01T10:00:00Z
+    When the meter figure is drawn with "--by day"
+    Then the figure has 70 days
+    And the thanks bar of day "2026-08-24" is labelled "20"
+    And exactly 1 bar is labelled
+
+  Scenario: --by day draws one bar per day, empty days included
+    Given I typed "thanks" at 2026-10-05T10:00:00Z
+    And I typed "thanks" at 2026-10-07T10:00:00Z
+    When the meter figure is drawn with "--by day"
+    Then the figure has 3 days
+    And the day "2026-10-05" has 1 thanks and 0 F-bombs
+    And the day "2026-10-06" has 0 thanks and 0 F-bombs
+    And the day "2026-10-07" has 1 thanks and 0 F-bombs
+    And the x axis caption reads "Day (UTC)"
+    And the figure describes itself as counting messages per day
+
+  Scenario: --by hour draws one bar per hour in the local time asked for
+    Given I typed "thanks" at 2026-10-20T19:30:00Z
+    And I typed "thanks" at 2026-10-20T21:10:00Z
+    When the meter figure is drawn with "--by hour --utc-offset -4"
+    Then the figure has 3 hours
+    And the hour "15:00" has 1 thanks and 0 F-bombs
+    And the hour "16:00" has 0 thanks and 0 F-bombs
+    And the hour "17:00" has 1 thanks and 0 F-bombs
+    And the x axis caption reads "Hour (UTC-4)"
+    And the figure describes itself as counting messages per hour
+
+  Scenario: --utc-offset moves a message across midnight to its local day
+    Given I typed "thanks" at 2026-10-21T02:00:00Z
+    When the meter figure is drawn with "--by day --utc-offset -4"
+    Then the figure has 1 day
+    And the day "2026-10-20" has 1 thanks and 0 F-bombs
+    And the x axis caption reads "Day (UTC-4)"
+
   Scenario: The legend tells thanks and F-bombs apart by pattern, not colour alone
     Given I typed 3 thanks and 1 F-bomb at 2026-10-05T10:00:00Z
     When the meter figure is drawn
@@ -285,6 +322,14 @@ Feature: Example consumers of the unified history
     When I run the meter example with "--demo --scale 0"
     Then the meter example exits with status 2
     And the meter example reports an error naming "--scale"
+
+  Scenario: An unknown period or a bad offset is refused
+    When I run the meter example with "--demo --by month"
+    Then the meter example exits with status 2
+    And the meter example reports an error naming "--by"
+    When I run the meter example with "--demo --utc-offset 15"
+    Then the meter example exits with status 2
+    And the meter example reports an error naming "--utc-offset"
 
   Scenario: The figure holds no message text, session titles or ids
     Given a session "secret-session-id" titled "secret session title" where I typed "thanks, never-show-this-message-text" at 2026-10-05T10:00:00Z
