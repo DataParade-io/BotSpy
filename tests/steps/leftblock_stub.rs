@@ -124,6 +124,8 @@ fn run(exe: &Path) -> i32 {
         return 2;
     }
     let deep = args.iter().any(|arg| arg == "--deep");
+    let report = args.windows(2).any(|pair| pair == ["--format", "report"]);
+    let mut findings = Vec::new();
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -154,9 +156,26 @@ fn run(exe: &Path) -> i32 {
             if kind == "deep" {
                 finding["score"] = json!(0.97);
             }
+            if report {
+                finding["line"] = json!(1);
+                findings.push(finding);
+                continue;
+            }
             if writeln!(out, "{finding}").is_err() || out.flush().is_err() {
                 return 2;
             }
+        }
+    }
+    if report {
+        let model = if mode.trim() == "model-unavailable" {
+            json!({"status": "unavailable", "reason": "missing-dependencies"})
+        } else {
+            json!({"status": "disabled"})
+        };
+        let doc = json!({"schemaVersion": 1, "findings": findings,
+            "rules": {"status": "completed", "findingCount": findings.len()}, "privacyFilter": model});
+        if writeln!(out, "{doc}").is_err() {
+            return 2;
         }
     }
     i32::from(any)

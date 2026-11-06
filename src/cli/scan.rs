@@ -505,7 +505,7 @@ fn plural(count: usize, noun: &str) -> String {
 /// string the store's pass compares the library's recorded timestamps
 /// against. An ISO date stands for its midnight UTC; a relative duration
 /// stands for that long before now.
-fn parse_cutoff(value: &str) -> Result<String, String> {
+pub(super) fn parse_cutoff(value: &str) -> Result<String, String> {
     if valid_rfc3339(value) {
         return Ok(value.to_string());
     }
