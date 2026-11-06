@@ -3,7 +3,7 @@
   "title": "Implement the local LeftBlock audit interface (DATAP-837)",
   "description": "Run the LeftBlock report process from the live adapters. Return only scan findings and coverage.",
   "type": "task",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "assignee": null,
   "creator": null,
@@ -30,8 +30,8 @@
     }
   ],
   "created_at": "2026-11-06T17:35:48.730593Z",
-  "updated_at": "2026-11-06T17:46:33.279286Z",
-  "closed_at": null,
+  "updated_at": "2026-11-06T18:20:40.639543Z",
+  "closed_at": "2026-11-06T18:20:40.639493Z",
   "agent": {
     "platform": "codex",
     "model": "6.1 Sol",
