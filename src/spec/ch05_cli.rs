@@ -39,6 +39,8 @@
 //! with pruning disabled so a source reporting nothing can never delete
 //! stored history — the one-shot `import` verb above runs the same pass
 //! once, pruning on, with `--full` forcing a re-extract from byte zero.
+//! [`privacy-audit`](../../features/cli/privacy_audit.feature) reports
+//! local LeftBlock findings for the selected sessions without a store.
 //! `export` stays out entirely (YAGNI).
 //!
 #![doc = concat!(
@@ -72,5 +74,8 @@
     "\n```\n\n",
     "### 80_stats.feature\n\n```gherkin\n",
     include_str!("../../features/cli/80_stats.feature"),
+    "\n```\n\n",
+    "### privacy_audit.feature\n\n```gherkin\n",
+    include_str!("../../features/cli/privacy_audit.feature"),
     "\n```\n"
 )]
