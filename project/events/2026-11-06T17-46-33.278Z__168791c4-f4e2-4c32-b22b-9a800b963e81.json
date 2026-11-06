@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "event_id": "168791c4-f4e2-4c32-b22b-9a800b963e81",
+  "issue_id": "BOTSPY-479da064-1345-4242-b93f-a32862074602",
+  "event_type": "comment_added",
+  "occurred_at": "2026-11-06T17:46:33.278Z",
+  "actor_id": "example-user",
+  "payload": {
+    "comment_id": "528af817-342f-462d-8f14-5a3ed0a3f83d",
+    "comment_author": "example-user",
+    "agent": {
+      "platform": "codex",
+      "model": "6.1 Sol",
+      "name": "DataParade integration"
+    }
+  }
+}

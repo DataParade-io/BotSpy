@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "event_id": "e3431bb2-ed57-439d-8200-f281b5892dff",
+  "issue_id": "BOTSPY-ac61e633-523a-4617-a055-0071db2a5c3d",
+  "event_type": "issue_created",
+  "occurred_at": "2026-11-06T17:35:12.512Z",
+  "actor_id": "example-user",
+  "payload": {
+    "title": "Specify the local LeftBlock audit interface (DATAP-837)",
+    "description": "Specify a local session audit with project, source, time and session selection. Verify findings and source coverage without transcript text.",
+    "issue_type": "task",
+    "status": "open",
+    "priority": 2,
+    "assignee": null,
+    "parent": "BOTSPY-7c2705bc-8499-4118-b86a-0dff9e6205cb",
+    "labels": []
+  }
+}

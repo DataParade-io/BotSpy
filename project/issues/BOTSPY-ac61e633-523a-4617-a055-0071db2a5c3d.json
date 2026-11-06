@@ -1,0 +1,25 @@
+{
+  "id": "BOTSPY-ac61e633-523a-4617-a055-0071db2a5c3d",
+  "title": "Specify the local LeftBlock audit interface (DATAP-837)",
+  "description": "Specify a local session audit with project, source, time and session selection. Verify findings and source coverage without transcript text.",
+  "type": "task",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": null,
+  "creator": null,
+  "parent": "BOTSPY-7c2705bc-8499-4118-b86a-0dff9e6205cb",
+  "labels": [],
+  "dependencies": [],
+  "comments": [],
+  "created_at": "2026-11-06T17:35:12.512504Z",
+  "updated_at": "2026-11-06T17:35:48.705811Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "6.1 Sol",
+    "name": "DataParade integration"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}

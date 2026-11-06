@@ -1,0 +1,43 @@
+{
+  "id": "BOTSPY-479da064-1345-4242-b93f-a32862074602",
+  "title": "Implement the local LeftBlock audit interface (DATAP-837)",
+  "description": "Run the LeftBlock report process from the live adapters. Return only scan findings and coverage.",
+  "type": "task",
+  "status": "in_progress",
+  "priority": 2,
+  "assignee": null,
+  "creator": null,
+  "parent": "BOTSPY-7c2705bc-8499-4118-b86a-0dff9e6205cb",
+  "labels": [],
+  "dependencies": [
+    {
+      "target": "BOTSPY-ac61e633-523a-4617-a055-0071db2a5c3d",
+      "type": "blocked-by"
+    }
+  ],
+  "comments": [
+    {
+      "id": "528af817-342f-462d-8f14-5a3ed0a3f83d",
+      "author": "example-user",
+      "text": "The live audit reports project and source coverage with no transcript text. The behavior suite and a DataParade audit with network access disabled passed.",
+      "created_at": "2026-11-06T17:46:33.278114Z",
+      "comment_type": "default",
+      "agent": {
+        "platform": "codex",
+        "model": "6.1 Sol",
+        "name": "DataParade integration"
+      }
+    }
+  ],
+  "created_at": "2026-11-06T17:35:48.730593Z",
+  "updated_at": "2026-11-06T17:46:33.279286Z",
+  "closed_at": null,
+  "agent": {
+    "platform": "codex",
+    "model": "6.1 Sol",
+    "name": "DataParade integration"
+  },
+  "right_now_summary": null,
+  "right_now_updated_at": null,
+  "custom": {}
+}
