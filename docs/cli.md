@@ -147,6 +147,29 @@ botspy scan --source claude_code --once --store ./history.db
 botspy scan --since 7d --interval 60 -o ndjson
 ```
 
+### `privacy-audit`
+
+Run LeftBlock on the text of live coding sessions. Install Gitleaks and a
+LeftBlock version that supports `scan --jsonl --format report`. The command
+prints one JSON report with findings, rule and model status, and source
+coverage. It does not create a store or emit transcript text.
+
+```bash
+botspy privacy-audit --project . --source claude_code --since 24h
+botspy privacy-audit --session SESSION_ID --privacy-filter off
+```
+
+By default the audit checks the current project and the last seven days.
+Use `--all` for all projects, or `--session` for an exact session ID with
+no date limit. A session without a known project path is counted separately
+and skipped when a project is selected. `--source` is repeatable.
+
+The audit returns 0 when it completes, even if it finds sensitive
+information or Privacy Filter is unavailable. It returns 1 when the
+session does not exist, 2 on invalid options, and 3 when a selected source
+or the rules could not be read. An incomplete audit can still return
+findings from the sources it could read.
+
 ### `import`
 
 Run one refresh pass with pruning enabled. Sessions no longer reported

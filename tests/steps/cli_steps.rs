@@ -11,6 +11,108 @@ use crate::BotSpyWorld;
 
 static SEQ: AtomicUsize = AtomicUsize::new(0);
 
+#[given("two local projects with synthetic coding sessions")]
+fn audit_fixture(world: &mut BotSpyWorld) {
+    let home = scratch("privacy-audit");
+    for (id, project, date) in [
+        ("first", "one", "2026-10-02"),
+        ("older", "one", "2026-09-15"),
+        ("second", "two", "2026-10-03"),
+    ] {
+        let cwd = home.join(project);
+        std::fs::create_dir_all(&cwd).unwrap();
+        let path = home.join(".claude/projects").join(project);
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(
+            path.join(format!("{id}.jsonl")),
+            format!("{}\n", serde_json::json!({
+                "type": "user", "uuid": "message", "cwd": cwd,
+                "timestamp": format!("{date}T12:00:00Z"),
+                "message": {"role": "user", "content": "[[synthetic-rule|private fixture phrase]]"}
+            })),
+        ).unwrap();
+    }
+    world.cli_home = Some(home);
+}
+
+fn audit(world: &mut BotSpyWorld, extra: &[&str], mode: &str) {
+    let home = world.cli_home.as_ref().unwrap();
+    let scanner = super::leftblock_stub::install(home, mode);
+    let mut argv = vec![
+        "botspy",
+        "privacy-audit",
+        "--home",
+        home.to_str().unwrap(),
+        "--leftblock",
+        scanner.to_str().unwrap(),
+        "--source",
+        "claude_code",
+    ];
+    argv.extend(extra);
+    world.cli_run = Some(cli::run_from(argv));
+}
+
+#[when("I audit the first project since the start of October")]
+fn audit_first(world: &mut BotSpyWorld) {
+    let project = world.cli_home.as_ref().unwrap().join("one");
+    audit(
+        world,
+        &[
+            "--project",
+            project.to_str().unwrap(),
+            "--since",
+            "2026-10-01",
+        ],
+        "ok",
+    );
+}
+
+#[when("I audit the second session by its exact ID")]
+fn audit_second(world: &mut BotSpyWorld) {
+    audit(world, &["--session", "second"], "model-unavailable");
+}
+
+#[when("I audit a selected source that cannot be read")]
+fn audit_unreadable(world: &mut BotSpyWorld) {
+    let root = world.cli_home.as_ref().unwrap().join("not-a-directory");
+    std::fs::write(&root, "").unwrap();
+    audit(world, &["--root", root.to_str().unwrap(), "--all"], "ok");
+}
+
+#[then(regex = r"^the audit has one finding from the (first|second) project$")]
+fn audit_finding(world: &mut BotSpyWorld, session: String) {
+    let result = world.cli_run.as_ref().unwrap();
+    assert_eq!(result.code, 0, "{}", result.stderr);
+    let report: Value = serde_json::from_str(&result.stdout).unwrap();
+    assert_eq!(report["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(report["findings"][0]["sessionId"], session);
+    assert_eq!(report["findings"][0]["message"], 1);
+    assert_eq!(report["findings"][0]["part"], 1);
+}
+
+#[then("the audit contains no transcript text")]
+fn audit_has_no_text(world: &mut BotSpyWorld) {
+    let result = world.cli_run.as_ref().unwrap();
+    assert!(!result.stdout.contains("private fixture phrase"));
+    assert!(!result.stderr.contains("private fixture phrase"));
+    assert!(!world.cli_home.as_ref().unwrap().join(".botspy").exists());
+}
+
+#[then("the audit reports that Privacy Filter is unavailable")]
+fn audit_model_unavailable(world: &mut BotSpyWorld) {
+    let result = world.cli_run.as_ref().unwrap();
+    let report: Value = serde_json::from_str(&result.stdout).unwrap();
+    assert_eq!(report["privacyFilter"]["status"], "unavailable");
+}
+
+#[then("the audit exits with a source error")]
+fn audit_source_error(world: &mut BotSpyWorld) {
+    let result = world.cli_run.as_ref().unwrap();
+    assert_eq!(result.code, 3, "{}", result.stderr);
+    let report: Value = serde_json::from_str(&result.stdout).unwrap();
+    assert_eq!(report["sources"][0]["status"], "error");
+}
+
 fn corpus_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }

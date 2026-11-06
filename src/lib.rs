@@ -105,6 +105,7 @@ pub mod adapter;
 pub mod adapters;
 pub mod cli;
 pub mod importer;
+pub mod privacy;
 pub mod schema;
 pub mod session;
 pub mod snapshot;

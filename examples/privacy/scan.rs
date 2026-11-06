@@ -8,7 +8,8 @@
 //! text. Exit 0 = clean, 1 = findings, 2 = error. The matched value is
 //! never part of the output.
 
-use botspy::{KnownPart, Part, Session};
+pub use botspy::privacy::part_text;
+use botspy::Session;
 use std::borrow::Cow;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
@@ -55,36 +56,6 @@ impl Slot {
             message,
             part,
         })
-    }
-}
-
-/// The scannable text of a part, if it carries any.
-pub fn part_text(part: &Part) -> Option<Cow<'_, str>> {
-    let Part::Known(known) = part else {
-        return None;
-    };
-    let text: Cow<'_, str> = match known {
-        KnownPart::Text { text, .. } | KnownPart::System { text, .. } => Cow::Borrowed(text),
-        KnownPart::Thinking {
-            text: Some(text), ..
-        }
-        | KnownPart::ToolResult {
-            text: Some(text), ..
-        } => Cow::Borrowed(text),
-        KnownPart::ToolCall {
-            arguments: Some(arguments),
-            ..
-        } => match (&arguments.raw, &arguments.value) {
-            (Some(raw), _) => Cow::Borrowed(raw),
-            (None, Some(value)) => Cow::Owned(value.to_string()),
-            _ => return None,
-        },
-        _ => return None,
-    };
-    if text.is_empty() {
-        None
-    } else {
-        Some(text)
     }
 }
 

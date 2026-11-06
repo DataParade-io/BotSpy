@@ -15,6 +15,7 @@
 //! its `state_5.sqlite` threads index at `~/.codex`, not in `sessions/`;
 //! Cursor's adapter wants the KV store file, not the directory).
 
+mod privacy_audit;
 pub mod render;
 pub mod scan;
 
@@ -153,6 +154,8 @@ pub enum Command {
     Snapshot(SnapshotArgs),
     /// Mine the adapters into the local store.
     Scan(scan::ScanArgs),
+    /// Audit local session text with LeftBlock and report findings as JSON.
+    PrivacyAudit(privacy_audit::PrivacyAuditArgs),
     /// Mine every registered adapter into the local store (one-shot CDC).
     Import(ImportArgs),
     /// Search the store's messages: text, semantic, or hybrid.
@@ -356,6 +359,7 @@ fn execute(cli: Cli, scan_sink: Option<&mut dyn FnMut(&str)>) -> RunOutcome {
         Command::Doctor(args) => doctor(args),
         Command::Snapshot(args) => snapshot(args),
         Command::Scan(args) => scan::scan(args, scan_sink),
+        Command::PrivacyAudit(args) => privacy_audit::run(args),
         Command::Import(args) => import(args),
         Command::Search(args) => search(args),
         Command::Stats(args) => stats(args),
